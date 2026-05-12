@@ -44,31 +44,51 @@
     let currentPage = 0;
     const LIMIT = 5;
 
+    function text(val, fallback) {
+      return document.createTextNode(val != null ? val : fallback ?? '');
+    }
+
+    function td(val, fallback) {
+      const cell = document.createElement('td');
+      cell.appendChild(text(val, fallback));
+      return cell;
+    }
+
     async function loadAnimals() {
       const animals = await api.get(`/animals?page=${currentPage}&limit=${LIMIT}`);
       const tbody = document.getElementById('animals-body');
+      tbody.replaceChildren();
 
       if (!animals.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty">No animals found.</td></tr>';
+        const row = document.createElement('tr');
+        const cell = document.createElement('td');
+        cell.colSpan = 6;
+        cell.className = 'empty';
+        cell.textContent = 'No animals found.';
+        row.appendChild(cell);
+        tbody.appendChild(row);
         document.getElementById('next-btn').disabled = true;
         return;
       }
 
-      tbody.innerHTML = animals.map(a => {
-        const event = a.latest_health_event
-          ? `${a.latest_health_event.event_type} (${a.latest_health_event.date})`
-          : '—';
-        return `
-          <tr>
-            <td>${a.tag_number}</td>
-            <td>${a.name}</td>
-            <td>${a.breed ?? '—'}</td>
-            <td>${a.paddock_id ?? '—'}</td>
-            <td>${event}</td>
-            <td><a href="animal-detail.html?id=${a.id}">View</a></td>
-          </tr>
-        `;
-      }).join('');
+      animals.forEach(a => {
+        const row = document.createElement('tr');
+        const ev = a.latest_health_event;
+        const eventText = ev ? `${ev.event_type} (${ev.date})` : '—';
+        const linkCell = document.createElement('td');
+        const link = document.createElement('a');
+        link.href = `animal-detail.html?id=${a.id}`;
+        link.textContent = 'View';
+        linkCell.appendChild(link);
+
+        row.appendChild(td(a.tag_number));
+        row.appendChild(td(a.name));
+        row.appendChild(td(a.breed, '—'));
+        row.appendChild(td(a.paddock_name, 'Unassigned'));
+        row.appendChild(td(eventText));
+        row.appendChild(linkCell);
+        tbody.appendChild(row);
+      });
 
       document.getElementById('page-info').textContent = `Page ${currentPage + 1}`;
       document.getElementById('prev-btn').disabled = currentPage === 0;

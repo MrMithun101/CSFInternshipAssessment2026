@@ -6,18 +6,32 @@ router.get('/', (req, res) => {
   const page = parseInt(req.query.page) || 0;
   const limit = parseInt(req.query.limit) || 10;
 
-  const animals = db.prepare(
-    'SELECT * FROM animals LIMIT ? OFFSET ?'
-  ).all(limit, page * limit);
-
-  const result = animals.map(animal => {
-    const latestEvent = db.prepare(`
-      SELECT * FROM health_events
-      WHERE animal_id = ?
+  const rows = db.prepare(`
+    SELECT
+      a.*,
+      p.name AS paddock_name,
+      he.id         AS he_id,
+      he.event_type AS he_event_type,
+      he.notes      AS he_notes,
+      he.date       AS he_date,
+      he.vet_name   AS he_vet_name
+    FROM animals a
+    LEFT JOIN paddocks p ON p.id = a.paddock_id
+    LEFT JOIN health_events he ON he.id = (
+      SELECT id FROM health_events
+      WHERE animal_id = a.id
       ORDER BY date DESC
       LIMIT 1
-    `).get(animal.id);
-    return { ...animal, latest_health_event: latestEvent ?? null };
+    )
+    LIMIT ? OFFSET ?
+  `).all(limit, page * limit);
+
+  const result = rows.map(row => {
+    const { he_id, he_event_type, he_notes, he_date, he_vet_name, ...animal } = row;
+    const latest_health_event = he_id
+      ? { id: he_id, animal_id: animal.id, event_type: he_event_type, notes: he_notes, date: he_date, vet_name: he_vet_name }
+      : null;
+    return { ...animal, latest_health_event };
   });
 
   res.json(result);
@@ -50,7 +64,12 @@ router.post('/', (req, res) => {
 });
 
 router.get('/:id', (req, res) => {
-  const animal = db.prepare('SELECT * FROM animals WHERE id = ?').get(req.params.id);
+  const animal = db.prepare(`
+    SELECT a.*, p.name AS paddock_name
+    FROM animals a
+    LEFT JOIN paddocks p ON p.id = a.paddock_id
+    WHERE a.id = ?
+  `).get(req.params.id);
   if (!animal) return res.status(404).json({ error: 'Animal not found' });
   res.json(animal);
 });

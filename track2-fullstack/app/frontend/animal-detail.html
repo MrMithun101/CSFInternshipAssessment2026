@@ -43,44 +43,124 @@
         <button type="submit">Log Event</button>
       </form>
     </section>
+
+    <section id="weight-section" style="display:none">
+      <h3>Weight History</h3>
+      <p id="latest-weight" class="latest-weight">No weight records yet.</p>
+      <table>
+        <thead>
+          <tr><th>Date</th><th>Weight (kg)</th><th>Notes</th></tr>
+        </thead>
+        <tbody id="weights-body"></tbody>
+      </table>
+
+      <h4>Log Weight</h4>
+      <form id="weight-form">
+        <label>Weight (kg) <input type="number" name="weight_kg" step="0.1" min="0.1" required></label>
+        <label>Date <input type="date" name="date" required></label>
+        <label>Notes <input type="text" name="notes" placeholder="Optional"></label>
+        <button type="submit">Log Weight</button>
+        <p class="error-msg" id="weight-error" style="display:none"></p>
+      </form>
+    </section>
   </main>
   <script src="app.js"></script>
   <script>
     const params = new URLSearchParams(window.location.search);
     const animalId = params.get('id');
 
+    function makeRow(cells, fallback) {
+      const row = document.createElement('tr');
+      cells.forEach(val => {
+        const td = document.createElement('td');
+        td.textContent = (val != null && val !== '') ? val : (fallback ?? '—');
+        row.appendChild(td);
+      });
+      return row;
+    }
+
+    function emptyRow(colspan, msg) {
+      const row = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = colspan;
+      td.className = 'empty';
+      td.textContent = msg;
+      row.appendChild(td);
+      return row;
+    }
+
     async function load() {
       const animal = await api.get(`/animals/${animalId}`);
 
       document.title = `${animal.name} — FarmTracker`;
-      document.getElementById('animal-detail').innerHTML = `
-        <div class="animal-header">
-          <h2>${animal.name}<span class="tag">${animal.tag_number}</span></h2>
-        </div>
-        <dl>
-          <dt>Breed</dt>       <dd>${animal.breed ?? '—'}</dd>
-          <dt>Date of Birth</dt><dd>${animal.date_of_birth ?? '—'}</dd>
-          <dt>Paddock</dt>     <dd>${animal.paddock_id ?? 'Unassigned'}</dd>
-        </dl>
-      `;
+
+      const detail = document.getElementById('animal-detail');
+      detail.replaceChildren();
+
+      const header = document.createElement('div');
+      header.className = 'animal-header';
+      const h2 = document.createElement('h2');
+      h2.textContent = animal.name;
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = animal.tag_number;
+      h2.appendChild(tag);
+      header.appendChild(h2);
+      detail.appendChild(header);
+
+      const dl = document.createElement('dl');
+      [
+        ['Breed', animal.breed ?? '—'],
+        ['Date of Birth', animal.date_of_birth ?? '—'],
+        ['Paddock', animal.paddock_name ?? 'Unassigned'],
+      ].forEach(([label, value]) => {
+        const dt = document.createElement('dt');
+        dt.textContent = label;
+        const dd = document.createElement('dd');
+        dd.textContent = value;
+        dl.appendChild(dt);
+        dl.appendChild(dd);
+      });
+      detail.appendChild(dl);
 
       document.getElementById('health-section').style.display = 'block';
+      document.getElementById('weight-section').style.display = 'block';
       await loadEvents();
+      await loadWeights();
     }
 
     async function loadEvents() {
       const events = await api.get(`/animals/${animalId}/health-events`);
       const tbody = document.getElementById('events-body');
-      tbody.innerHTML = events.length
-        ? events.map(e => `
-            <tr>
-              <td>${e.date}</td>
-              <td>${e.event_type}</td>
-              <td>${e.vet_name ?? '—'}</td>
-              <td>${e.notes ?? '—'}</td>
-            </tr>
-          `).join('')
-        : '<tr><td colspan="4" class="empty">No events recorded.</td></tr>';
+      tbody.replaceChildren();
+      if (!events.length) {
+        tbody.appendChild(emptyRow(4, 'No events recorded.'));
+        return;
+      }
+      events.forEach(e => {
+        tbody.appendChild(makeRow([e.date, e.event_type, e.vet_name, e.notes]));
+      });
+    }
+
+    async function loadWeights() {
+      const weights = await api.get(`/animals/${animalId}/weights`);
+      const tbody = document.getElementById('weights-body');
+      const latestEl = document.getElementById('latest-weight');
+      tbody.replaceChildren();
+
+      if (!weights.length) {
+        latestEl.textContent = 'No weight records yet.';
+        tbody.appendChild(emptyRow(3, 'No weight records.'));
+        return;
+      }
+
+      const latest = weights[0];
+      const formatted = new Date(latest.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+      latestEl.textContent = `Latest: ${latest.weight_kg} kg on ${formatted}`;
+
+      weights.forEach(w => {
+        tbody.appendChild(makeRow([w.date, w.weight_kg, w.notes]));
+      });
     }
 
     document.getElementById('event-form').addEventListener('submit', async (e) => {
@@ -89,6 +169,22 @@
       await api.post(`/animals/${animalId}/health-events`, data);
       e.target.reset();
       await loadEvents();
+    });
+
+    document.getElementById('weight-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errorEl = document.getElementById('weight-error');
+      errorEl.style.display = 'none';
+      const data = Object.fromEntries(new FormData(e.target));
+      data.weight_kg = parseFloat(data.weight_kg);
+      try {
+        await api.post(`/animals/${animalId}/weights`, data);
+        e.target.reset();
+        await loadWeights();
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.style.display = '';
+      }
     });
 
     load();
