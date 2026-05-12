@@ -8,7 +8,7 @@ router.get('/', (req, res) => {
 
   const animals = db.prepare(
     'SELECT * FROM animals LIMIT ? OFFSET ?'
-  ).all(limit, page);
+  ).all(limit, page * limit);
 
   const result = animals.map(animal => {
     const latestEvent = db.prepare(`
