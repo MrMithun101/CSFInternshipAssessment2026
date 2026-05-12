@@ -41,7 +41,7 @@ router.post('/', (req, res) => {
   ).run(name, tag_number, breed ?? null, date_of_birth ?? null, paddock_id ?? null);
 
   const animal = db.prepare('SELECT * FROM animals WHERE id = ?').get(result.lastInsertRowid);
-  res.json(animal);
+  res.status(201).json(animal);
 });
 
 router.get('/:id', (req, res) => {
