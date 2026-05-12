@@ -55,9 +55,17 @@ router.post('/', (req, res) => {
     ).run(paddock_id);
   }
 
-  const result = db.prepare(
-    'INSERT INTO animals (name, tag_number, breed, date_of_birth, paddock_id) VALUES (?, ?, ?, ?, ?)'
-  ).run(name, tag_number, breed ?? null, date_of_birth ?? null, paddock_id ?? null);
+  let result;
+  try {
+    result = db.prepare(
+      'INSERT INTO animals (name, tag_number, breed, date_of_birth, paddock_id) VALUES (?, ?, ?, ?, ?)'
+    ).run(name, tag_number, breed ?? null, date_of_birth ?? null, paddock_id ?? null);
+  } catch (err) {
+    if (err.errcode === 2067) { // SQLITE_CONSTRAINT_UNIQUE
+      return res.status(409).json({ error: 'tag_number already exists' });
+    }
+    throw err;
+  }
 
   const animal = db.prepare('SELECT * FROM animals WHERE id = ?').get(result.lastInsertRowid);
   res.status(201).json(animal);
@@ -106,13 +114,25 @@ router.put('/:id', (req, res) => {
     }
   }
 
-  db.prepare(`
-    UPDATE animals
-    SET name = ?, tag_number = ?, breed = ?, date_of_birth = ?, paddock_id = ?
-    WHERE id = ?
-  `).run(updates.name, updates.tag_number, updates.breed, updates.date_of_birth, updates.paddock_id, req.params.id);
+  try {
+    db.prepare(`
+      UPDATE animals
+      SET name = ?, tag_number = ?, breed = ?, date_of_birth = ?, paddock_id = ?
+      WHERE id = ?
+    `).run(updates.name, updates.tag_number, updates.breed, updates.date_of_birth, updates.paddock_id, req.params.id);
+  } catch (err) {
+    if (err.errcode === 2067) { // SQLITE_CONSTRAINT_UNIQUE
+      return res.status(409).json({ error: 'tag_number already exists' });
+    }
+    throw err;
+  }
 
-  const updated = db.prepare('SELECT * FROM animals WHERE id = ?').get(req.params.id);
+  const updated = db.prepare(`
+    SELECT a.*, p.name AS paddock_name
+    FROM animals a
+    LEFT JOIN paddocks p ON p.id = a.paddock_id
+    WHERE a.id = ?
+  `).get(req.params.id);
   res.json(updated);
 });
 

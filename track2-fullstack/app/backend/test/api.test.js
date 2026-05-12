@@ -241,3 +241,52 @@ test('POST /api/animals returns 422 when paddock is at capacity', async () => {
   assert.equal(status, 422);
   assert.ok(body.error);
 });
+
+test('POST /api/animals returns 409 for duplicate tag_number', async () => {
+  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { status, body } = await post('/animals', {
+    name: 'Duplicate',
+    tag_number: animals[0].tag_number,
+  });
+  assert.equal(status, 409);
+  assert.ok(body.error);
+});
+
+test('PUT /api/animals/:id reassigning paddock updates both animal_counts', async () => {
+  const { body: paddocks } = await get('/paddocks');
+  const fromPaddock = paddocks[0];
+  const toPaddock = paddocks[1];
+
+  const { body: animal } = await post('/animals', {
+    name: 'Reassign Me',
+    tag_number: 'TAG-MOVE-001',
+    paddock_id: fromPaddock.id,
+  });
+
+  const res = await fetch(baseUrl + `/animals/${animal.id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paddock_id: toPaddock.id }),
+  });
+  assert.equal(res.status, 200);
+
+  const updated = await res.json();
+  assert.equal(updated.paddock_id, toPaddock.id);
+  assert.equal(updated.paddock_name, toPaddock.name);
+
+  const { body: from } = await get(`/paddocks/${fromPaddock.id}`);
+  const { body: to } = await get(`/paddocks/${toPaddock.id}`);
+  assert.equal(from.animal_count, fromPaddock.animal_count, 'old paddock count should be restored');
+  assert.equal(to.animal_count, toPaddock.animal_count + 1, 'new paddock count should increment');
+});
+
+test('PUT /api/animals/:id returns 409 for duplicate tag_number', async () => {
+  const { body: animals } = await get('/animals?page=0&limit=2');
+  const [a, b] = animals;
+  const res = await fetch(baseUrl + `/animals/${a.id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tag_number: b.tag_number }),
+  });
+  assert.equal(res.status, 409);
+});

@@ -88,3 +88,10 @@ track2-fullstack/
 ```
 
 `notes` is nullable. `weight_kg` must be a positive number. `date` is required (ISO 8601 string, e.g. `"2024-12-01"`).
+
+## Known limitations
+
+- **No authentication.** All endpoints are public. See `ARCH_PROPOSAL.md` for the proposed JWT + farm-scoped multi-tenancy design.
+- **`animal_count` is a cached counter.** Concurrent writes have a narrow race window where two requests could both pass the capacity check before either increments the count. Under SQLite's single-writer WAL mode this window is very small, but a `CHECK` constraint or serialised transaction would fully close it. Documented in `RETRO.md`.
+- **Weight and health event history is unpaginated.** All records are returned in a single response. For long-lived animals this could grow, but agricultural data accumulates slowly and the current approach keeps the API simple.
+- **Hard deletes only.** Deleting an animal permanently removes its record. In a full traceability system, records would be soft-deleted or archived to preserve the animal's history for compliance purposes.

@@ -5,6 +5,13 @@
 **`animal_count` as a cached counter vs. a derived count.**
 Keeping `animal_count` on the `paddocks` row makes the paddock list fast — one query, no joins, no subquery aggregation. The trade-off is that every mutation path (create, reassign, delete) must remember to update the counter. The bug found in this audit (missing decrement on reassignment) is a direct consequence of that maintenance burden. A derived count via `SELECT COUNT(*) FROM animals WHERE paddock_id = ?` would always be accurate but adds per-row overhead to every paddocks list render. At current scale the derived approach would be fine; the cached counter only pays off at thousands of paddocks.
 
+In a production traceability context, a periodic reconciliation job would be a sensible safeguard against any future drift:
+```sql
+UPDATE paddocks SET animal_count = (
+  SELECT COUNT(*) FROM animals WHERE paddock_id = paddocks.id
+);
+```
+
 **Capacity enforcement at the application layer.**
 The check `if paddock.animal_count >= paddock.capacity` is correct under serialised SQLite writes (WAL mode processes one writer at a time). Under concurrent HTTP requests, two requests could both read the same `animal_count`, both pass the check, and both increment — leaving the paddock one over capacity. SQLite's serialisation makes this a narrow race window, but it is not zero. The correct fix is a CHECK constraint on the table or a serialised transaction with a re-read inside. Left as a known limitation given the single-process deployment target.
 
