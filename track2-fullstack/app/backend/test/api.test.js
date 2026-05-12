@@ -30,7 +30,7 @@ after(async () => {
 });
 
 function seedTestData() {
-  db.exec('DELETE FROM health_events; DELETE FROM animals; DELETE FROM paddocks;');
+  db.exec('DELETE FROM weights; DELETE FROM health_events; DELETE FROM animals; DELETE FROM paddocks;');
 
   const northId = db.prepare(
     'INSERT INTO paddocks (name, capacity, animal_count) VALUES (?, ?, 0)'
@@ -107,4 +107,76 @@ test('POST /api/animals/:id/health-events creates an event', async () => {
   assert.equal(status, 201);
   assert.equal(body.event_type, 'checkup');
   assert.equal(body.animal_id, id);
+});
+
+test('POST /api/animals/:id/weights creates a weight record (201)', async () => {
+  const { body: animals } = await get('/animals?page=0&limit=1');
+  const id = animals[0].id;
+  const { status, body } = await post(`/animals/${id}/weights`, {
+    weight_kg: 45.5,
+    date: '2025-03-01',
+    notes: 'Spring weigh-in',
+  });
+  assert.equal(status, 201);
+  assert.equal(body.animal_id, id);
+  assert.equal(body.weight_kg, 45.5);
+  assert.equal(body.date, '2025-03-01');
+  assert.equal(body.notes, 'Spring weigh-in');
+});
+
+test('GET /api/animals/:id/weights returns weights ordered by date descending', async () => {
+  const { body: animals } = await get('/animals?page=0&limit=1');
+  const id = animals[0].id;
+  await post(`/animals/${id}/weights`, { weight_kg: 40.0, date: '2025-01-01' });
+  await post(`/animals/${id}/weights`, { weight_kg: 42.0, date: '2025-03-01' });
+  await post(`/animals/${id}/weights`, { weight_kg: 41.0, date: '2025-02-01' });
+  const { status, body } = await get(`/animals/${id}/weights`);
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(body));
+  assert.ok(body.length >= 3);
+  for (let i = 1; i < body.length; i++) {
+    assert.ok(body[i - 1].date >= body[i].date, 'weights not in descending date order');
+  }
+});
+
+test('POST /api/animals/:id/weights returns 422 when weight_kg is missing', async () => {
+  const { body: animals } = await get('/animals?page=0&limit=1');
+  const id = animals[0].id;
+  const { status } = await post(`/animals/${id}/weights`, { date: '2025-03-01' });
+  assert.equal(status, 422);
+});
+
+test('POST /api/animals/:id/weights returns 422 when weight_kg is zero', async () => {
+  const { body: animals } = await get('/animals?page=0&limit=1');
+  const id = animals[0].id;
+  const { status } = await post(`/animals/${id}/weights`, { weight_kg: 0, date: '2025-03-01' });
+  assert.equal(status, 422);
+});
+
+test('POST /api/animals/:id/weights returns 422 when weight_kg is negative', async () => {
+  const { body: animals } = await get('/animals?page=0&limit=1');
+  const id = animals[0].id;
+  const { status } = await post(`/animals/${id}/weights`, { weight_kg: -5, date: '2025-03-01' });
+  assert.equal(status, 422);
+});
+
+test('POST /api/animals/:id/weights returns 404 for unknown animal', async () => {
+  const { status } = await post('/animals/999999/weights', { weight_kg: 50, date: '2025-03-01' });
+  assert.equal(status, 404);
+});
+
+test('GET /api/animals/:id/weights returns 404 for unknown animal', async () => {
+  const { status } = await get('/animals/999999/weights');
+  assert.equal(status, 404);
+});
+
+test('POST /api/animals/:id/weights accepts record with no notes', async () => {
+  const { body: animals } = await get('/animals?page=0&limit=1');
+  const id = animals[0].id;
+  const { status, body } = await post(`/animals/${id}/weights`, {
+    weight_kg: 38.0,
+    date: '2025-04-01',
+  });
+  assert.equal(status, 201);
+  assert.equal(body.notes, null);
 });
