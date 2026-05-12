@@ -90,7 +90,18 @@
     }
 
     async function load() {
-      const animal = await api.get(`/animals/${animalId}`);
+      let animal;
+      try {
+        animal = await api.get(`/animals/${animalId}`);
+      } catch (err) {
+        const detail = document.getElementById('animal-detail');
+        detail.replaceChildren();
+        const p = document.createElement('p');
+        p.className = 'empty';
+        p.textContent = err.message || 'Failed to load animal.';
+        detail.appendChild(p);
+        return;
+      }
 
       document.title = `${animal.name} — FarmTracker`;
 
@@ -155,7 +166,8 @@
       }
 
       const latest = weights[0];
-      const formatted = new Date(latest.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+      const [y, m, d] = latest.date.split('-').map(Number);
+      const formatted = new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
       latestEl.textContent = `Latest: ${latest.weight_kg} kg on ${formatted}`;
 
       weights.forEach(w => {

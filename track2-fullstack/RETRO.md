@@ -14,7 +14,7 @@ Weight endpoints return all records for an animal. For a long-lived flock this c
 ## What I Would Do Differently
 
 - **Implement auth from the start.** Adding `farm_id` to an existing schema requires a migration; baking it in from day one is cheaper. The proposal in `ARCH_PROPOSAL.md` requires a backfill step that would not be needed if the schema had included `farm_id` originally.
-- **Add integration tests for capacity enforcement and animal reassignment.** The existing test suite does not cover the paddock-count drift bug or the capacity 422 path. Those are the highest-risk mutations in the app and should have regression tests.
+- **Write regression tests for bug fixes at the same time as the fix.** Capacity enforcement and paddock-count drift are the highest-risk mutation paths — tests for those should have been committed alongside the fix, not as a separate pass.
 
 ## What I Left Alone
 

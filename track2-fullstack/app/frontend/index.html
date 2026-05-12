@@ -27,19 +27,39 @@
     async function loadPaddocks() {
       const paddocks = await api.get('/paddocks');
       const grid = document.getElementById('paddocks-grid');
+      grid.replaceChildren();
+
       if (!paddocks.length) {
-        grid.innerHTML = '<p class="empty">No paddocks found.</p>';
+        const p = document.createElement('p');
+        p.className = 'empty';
+        p.textContent = 'No paddocks found.';
+        grid.appendChild(p);
         return;
       }
-      grid.innerHTML = paddocks.map(p => `
-        <div class="card">
-          <h3>${p.name}</h3>
-          <p class="stat">${p.animal_count} / ${p.capacity} animals</p>
-          <div class="capacity-bar">
-            <div class="capacity-fill" style="width: ${Math.min(100, Math.round((p.animal_count / p.capacity) * 100))}%"></div>
-          </div>
-        </div>
-      `).join('');
+
+      paddocks.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'card';
+
+        const h3 = document.createElement('h3');
+        h3.textContent = p.name;
+
+        const stat = document.createElement('p');
+        stat.className = 'stat';
+        stat.textContent = `${p.animal_count} / ${p.capacity} animals`;
+
+        const bar = document.createElement('div');
+        bar.className = 'capacity-bar';
+        const fill = document.createElement('div');
+        fill.className = 'capacity-fill';
+        fill.style.width = `${Math.min(100, Math.round((p.animal_count / p.capacity) * 100))}%`;
+        bar.appendChild(fill);
+
+        card.appendChild(h3);
+        card.appendChild(stat);
+        card.appendChild(bar);
+        grid.appendChild(card);
+      });
     }
 
     loadPaddocks();

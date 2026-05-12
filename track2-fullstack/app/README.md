@@ -9,43 +9,49 @@ A livestock record management application for tracking animals, paddock assignme
 ## Setup
 
 ```bash
-cd backend
+cd track2-fullstack/app/backend
 npm install
 node seed.js
-npm start
+npm start        # production
+npm run dev      # watch mode — auto-restarts on file changes
 ```
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Running tests
 
-The test suite starts its own server and temporary SQLite database:
+The test suite starts its own isolated server and temporary SQLite database — no seed or running server needed:
 
 ```bash
-cd backend
+cd track2-fullstack/app/backend
 npm test
 ```
 
 ## Project structure
 
 ```
-app/
-├── backend/
-│   ├── server.js          # Express app entry point
-│   ├── db.js              # Database connection and schema
-│   ├── routes/
-│   │   ├── animals.js     # Animal endpoints
-│   │   └── paddocks.js    # Paddock endpoints
-│   ├── test/
-│   │   └── api.test.js    # Integration tests
-│   ├── seed.js            # Seed script (run once after install)
-│   └── package.json
-└── frontend/
-    ├── index.html         # Paddocks overview
-    ├── animals.html       # Animal list
-    ├── animal-detail.html # Animal detail and health events
-    ├── app.js             # Shared fetch utilities
-    └── styles.css
+track2-fullstack/
+├── AUDIT.md               # Pre-change code review — bugs found and prioritised
+├── RETRO.md               # Trade-offs and post-implementation retrospective
+├── ARCH_PROPOSAL.md       # Concrete proposal for JWT auth + multi-tenancy
+└── app/
+    ├── README.md          # This file
+    ├── backend/
+    │   ├── server.js          # Express app entry point
+    │   ├── db.js              # Database connection and schema
+    │   ├── routes/
+    │   │   ├── animals.js     # Animal + health event + weight endpoints
+    │   │   └── paddocks.js    # Paddock endpoints
+    │   ├── test/
+    │   │   └── api.test.js    # Integration tests (18 tests)
+    │   ├── seed.js            # Seed script (run once after install)
+    │   └── package.json
+    └── frontend/
+        ├── index.html         # Paddocks overview
+        ├── animals.html       # Paginated animal list
+        ├── animal-detail.html # Animal detail, health events, weight history
+        ├── app.js             # Shared fetch utilities
+        └── styles.css
 ```
 
 ## API reference

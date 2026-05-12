@@ -173,7 +173,7 @@ router.post('/:id/weights', (req, res) => {
 
   const { weight_kg, date, notes } = req.body;
   if (weight_kg == null) return res.status(422).json({ error: 'weight_kg is required' });
-  if (typeof weight_kg !== 'number' || weight_kg <= 0) {
+  if (typeof weight_kg !== 'number' || !isFinite(weight_kg) || weight_kg <= 0) {
     return res.status(422).json({ error: 'weight_kg must be a positive number' });
   }
   if (!date) return res.status(422).json({ error: 'date is required' });

@@ -69,6 +69,11 @@ async function post(path, body) {
   return { status: res.status, body: await res.json() };
 }
 
+async function del(path) {
+  const res = await fetch(baseUrl + path, { method: 'DELETE' });
+  return { status: res.status, body: await res.json() };
+}
+
 test('GET /api/paddocks returns an array', async () => {
   const { status, body } = await get('/paddocks');
   assert.equal(status, 200);
@@ -179,4 +184,60 @@ test('POST /api/animals/:id/weights accepts record with no notes', async () => {
   });
   assert.equal(status, 201);
   assert.equal(body.notes, null);
+});
+
+test('POST /api/animals/:id/weights returns 422 when date is missing', async () => {
+  const { body: animals } = await get('/animals?page=0&limit=1');
+  const id = animals[0].id;
+  const { status } = await post(`/animals/${id}/weights`, { weight_kg: 50 });
+  assert.equal(status, 422);
+});
+
+test('POST /api/animals/:id/weights returns 422 when weight_kg is NaN', async () => {
+  const { body: animals } = await get('/animals?page=0&limit=1');
+  const id = animals[0].id;
+  const { status } = await post(`/animals/${id}/weights`, { weight_kg: NaN, date: '2025-03-01' });
+  assert.equal(status, 422);
+});
+
+test('POST /api/animals creates animal and returns 201', async () => {
+  const { status, body } = await post('/animals', {
+    name: 'Test Sheep',
+    tag_number: 'TAG-999',
+    breed: 'Merino',
+  });
+  assert.equal(status, 201);
+  assert.equal(body.name, 'Test Sheep');
+  assert.ok(body.id);
+});
+
+test('DELETE /api/animals/:id decrements paddock animal_count', async () => {
+  const { body: paddocks } = await get('/paddocks');
+  const paddock = paddocks[0];
+
+  const { body: animal } = await post('/animals', {
+    name: 'Delete Me',
+    tag_number: 'TAG-DEL-001',
+    paddock_id: paddock.id,
+  });
+  assert.equal(animal.paddock_id, paddock.id);
+
+  const { status } = await del(`/animals/${animal.id}`);
+  assert.equal(status, 200);
+
+  const { body: after } = await get(`/paddocks/${paddock.id}`);
+  assert.equal(after.animal_count, paddock.animal_count);
+});
+
+test('POST /api/animals returns 422 when paddock is at capacity', async () => {
+  const { body: paddock } = await post('/paddocks', { name: 'Tiny Pen', capacity: 1 });
+  await post('/animals', { name: 'First', tag_number: 'TAG-CAP-001', paddock_id: paddock.id });
+
+  const { status, body } = await post('/animals', {
+    name: 'Second',
+    tag_number: 'TAG-CAP-002',
+    paddock_id: paddock.id,
+  });
+  assert.equal(status, 422);
+  assert.ok(body.error);
 });
