@@ -62,3 +62,23 @@ app/
 | DELETE | /api/animals/:id | Delete an animal |
 | GET | /api/animals/:id/health-events | List health events |
 | POST | /api/animals/:id/health-events | Log a health event |
+| GET | /api/animals/:id/weights | List weight records (ordered by date DESC) |
+| POST | /api/animals/:id/weights | Log a weight record |
+
+### Pagination
+
+`GET /api/animals` accepts `page` (0-indexed, default 0) and `limit` (default 10) query parameters. The offset is calculated as `page * limit`, so page 0 returns rows 0–9, page 1 returns rows 10–19, and so on.
+
+### Weight record shape
+
+```json
+{
+  "id": 1,
+  "animal_id": 3,
+  "weight_kg": 44.8,
+  "date": "2024-12-01",
+  "notes": "Post-shearing weigh-in"
+}
+```
+
+`notes` is nullable. `weight_kg` must be a positive number. `date` is required (ISO 8601 string, e.g. `"2024-12-01"`).
