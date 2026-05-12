@@ -12,8 +12,9 @@ const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
-    return res.json();
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `POST ${path} failed: ${res.status}`);
+    return data;
   },
   async put(path, body) {
     const res = await fetch(API_BASE + path, {
@@ -21,8 +22,9 @@ const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`PUT ${path} failed: ${res.status}`);
-    return res.json();
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `PUT ${path} failed: ${res.status}`);
+    return data;
   },
   async delete(path) {
     const res = await fetch(API_BASE + path, { method: 'DELETE' });
