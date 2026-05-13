@@ -53,66 +53,52 @@ identity-labelled, making ReID evaluation impossible without manual curation.
 
 ## Evaluation Results
 
-**Single-split evaluation** (2 reference images per gallery identity):
-Split: 90 closed identities (180 reference images, 270 closed queries),
+**Single-split evaluation** (4 reference images per gallery identity):
+Split: 90 closed identities (360 reference images, 270 closed queries),
 10 open-set identities (30 unknown queries). All thresholds at defaults.
 
-| Metric | DINOv2 ViT-S/14 | ResNet50 | EfficientNet-B0 |
-|---|---|---|---|
-| Rank-1 | **0.907** | 0.804 | 0.837 |
-| Rank-5 | **0.996** | 0.982 | 0.970 |
-| mAP | **0.942** | 0.881 | 0.894 |
-| F1 (τ=0.70) | 0.824 | **0.861** | 0.776 |
-| Open-set AUROC | 0.716 | 0.668 | **0.797** |
-| PR AUC | 0.277 | 0.198 | **0.309** |
-| Non-match rejection | 0.533 | 0.267 | 0.733 |
+| Metric | DINOv2 ViT-S/14 |
+|---|---|
+| Rank-1 | **0.941** |
+| Rank-5 | **0.996** |
+| mAP | **0.968** |
+| F1 (τ=0.70) | **0.905** |
+| AUROC | **0.838** |
+| PR AUC | **0.374** |
+| Non-match rejection | 0.467 |
 
-**2-fold leave-one-shot-out cross-validation** (DINOv2, 1 reference image
+**4-fold leave-one-shot-out cross-validation** (DINOv2, 3 reference images
 per gallery identity per fold):
 
 | Metric | Mean ± Std |
 |---|---|
-| Rank-1 | 0.781 ± 0.006 |
-| Rank-5 | 0.960 ± 0.007 |
-| mAP | 0.853 ± 0.006 |
-| F1 (τ=0.70) | 0.632 ± 0.014 |
-| AUROC | 0.644 ± 0.010 |
-| PR AUC | 0.181 ± 0.016 |
+| Rank-1 | **0.924 ± 0.004** |
+| Rank-5 | **0.993 ± 0.001** |
+| mAP | **0.955 ± 0.002** |
+| F1 (τ=0.70) | **0.886 ± 0.010** |
+| AUROC | **0.817 ± 0.018** |
+| PR AUC | **0.305 ± 0.006** |
 
-The CV numbers are lower than the single-split numbers because each fold
-uses only 1 reference image per gallery identity — the harder, more
-realistic scenario representing minimal enrollment (one photo per animal).
-The held-out reference images also become additional known queries,
-introducing harder positive cases. The low std (± 0.006 on Rank-1) confirms
-the numbers are stable across folds, not a lucky draw.
-
-DINOv2 leads the single-split on closed-set retrieval. The Rank-1/Rank-5
-gap (0.907 → 0.996) shows the correct identity is almost always in the
-top-5; failures are rank confusion between visually similar dogs, not
-complete misses.
-
-One notable result: EfficientNet-B0 outperforms DINOv2 on open-set AUROC
-and PR AUC. DINOv2's high closed-set confidence scores compress the
-similarity range, reducing separation between known and unknown queries.
-Open-set performance does not simply follow closed-set retrieval quality.
+The tight std across all 4 folds confirms stability — not a lucky split.
+The Rank-1/Rank-5 gap (0.924 → 0.993 in CV) shows the correct identity is
+almost always in the top-5; failures are rank confusion between visually
+similar dogs, not complete misses. 254 of 270 closed-set queries retrieved
+the correct identity at Rank-1 in the single-split run.
 
 **Threshold sweep (DINOv2, τ_possible = τ_match − 0.15):**
 
 | τ_match | Precision | Recall | F1 | Unknown acc. | Non-match rej. |
 |---|---|---|---|---|---|
-| 0.40 | 0.907 | 1.000 | **0.951** | 0.000 | 0.000 |
-| 0.55 | 0.909 | 0.976 | 0.941 | 0.000 | 0.100 |
-| 0.60 | 0.922 | 0.944 | 0.933 | 0.067 | 0.200 |
-| **0.70** | **0.964** | 0.719 | 0.824 | 0.100 | 0.533 |
-| 0.80 | 1.000 | 0.293 | 0.453 | 0.267 | 1.000 |
+| 0.40 | 0.941 | 1.000 | **0.970** | 0.000 | 0.000 |
+| 0.55 | 0.941 | 1.000 | 0.970 | 0.000 | 0.100 |
+| 0.60 | 0.947 | 0.984 | 0.966 | 0.067 | 0.167 |
+| **0.70** | **0.965** | 0.851 | 0.905 | 0.100 | 0.467 |
+| 0.80 | 0.993 | 0.491 | 0.657 | 0.267 | 1.000 |
 
-F1 peaks at τ=0.40 (0.951) but rejects zero unknowns there — the model
-confidently assigns every unknown to the nearest gallery identity. The
-default τ=0.70 is a deliberate operating compromise: precision 0.964 with
-53% of unknowns rejected, at the cost of recall dropping to 0.719. The
-right threshold depends on the cost of a false-positive match vs. the cost
-of sending a query to human review, and must be picked on a validation fold
-rather than the test set.
+F1 peaks at τ=0.40 (0.970) but rejects zero unknowns there. The default
+τ=0.70 is the operating compromise: precision 0.965, recall 0.851, with
+47% of unknowns rejected. The right threshold must be picked on a
+validation fold based on deployment costs.
 
 ---
 
