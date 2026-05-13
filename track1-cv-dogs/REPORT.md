@@ -18,69 +18,99 @@ alignment, not instance-level similarity. I chose it over a plain ResNet50
 because DINOv2's self-supervised objective encourages patch-level feature
 diversity rather than class-collapse. ResNet50 and EfficientNet-B0 are
 included as cheaper baselines via `--model resnet50 / efficientnet` so the
-trade-off is measurable.
+trade-off is measurable rather than claimed.
 
 **Similarity metric — cosine on L2-normalised embeddings.**
-After L2 normalisation, cosine similarity is equivalent to dot product.
-This is the standard choice for retrieval because it is invariant to
-embedding magnitude and has a known range [−1, 1], which makes threshold
-selection interpretable.
+After L2 normalisation, cosine similarity is equivalent to dot product and
+has a known range [−1, 1], which makes threshold selection interpretable.
+This is the standard choice for retrieval.
 
 **Gallery prototype — mean of reference embeddings, re-normalised.**
 When multiple reference images exist for one identity, I average their
-embeddings and re-normalise. This is a simple and auditable strategy.
-It loses view-specific detail compared to storing all reference embeddings
-and taking a max-over-references, but it keeps inference cost constant
-regardless of gallery size and reduces noise from outlier reference images.
+embeddings and re-normalise. This keeps inference cost constant regardless
+of gallery size and reduces noise from outlier reference images. It does
+lose view-specific detail compared to max-over-references retrieval, which
+is a known trade-off worth testing if time allows.
 
 **Open-set recognition.**
-I added a two-threshold decision rule: `match` (score ≥ τ_match),
-`possible_match` (τ_possible ≤ score < τ_match), and `unknown`
+I added a two-threshold decision rule: `match` (score ≥ τ_match = 0.70),
+`possible_match` (τ_possible ≤ score < τ_match = 0.55–0.70), and `unknown`
 (score < τ_possible). The `possible_match` band acts as a human-review
-abstention zone rather than a hard classification, which is more honest
+abstention zone rather than a forced classification, which is more honest
 about model uncertainty than a binary threshold.
 
 **Dataset.**
-I used DogFaceNet (`dimidagd/DogFaceNet_224resize` on HuggingFace) — a
-face-centric dog dataset with identity labels across 1,393 individuals.
-I evaluated on the top-100 identities by image count, with an
-identity-disjoint split (seed=0, 2 reference images per identity,
-3 queries per identity, 10% open-set). Identity-disjoint means no
-individual appears in both gallery and unknown pool, which is the correct
-evaluation protocol for ReID. I chose DogFaceNet over Stanford Dogs because
-Stanford Dogs is breed-labelled rather than identity-labelled, making ReID
-evaluation impossible without manual curation.
+I used DogFaceNet (`dimidagd/DogFaceNet_224resize` on HuggingFace), a
+face-centric dog dataset with identity labels. I evaluated on the top-100
+identities by image count, with an identity-disjoint split (seed=0, 2
+reference images per identity, 3 queries per identity, 10% open-set).
+Identity-disjoint means no individual appears in both gallery and unknown
+pool, which is the correct evaluation protocol for ReID. I chose DogFaceNet
+over Stanford Dogs because Stanford Dogs is breed-labelled, not
+identity-labelled, making ReID evaluation impossible without manual curation.
+
+---
+
+## Evaluation Results
+
+Split: 90 closed identities (180 reference images, 270 closed queries),
+10 open-set identities (30 unknown queries). All thresholds at defaults.
+
+| Metric | DINOv2 ViT-S/14 | ResNet50 | EfficientNet-B0 |
+|---|---|---|---|
+| Rank-1 | **0.907** | 0.804 | 0.837 |
+| Rank-5 | **0.996** | 0.982 | 0.970 |
+| mAP | **0.942** | 0.881 | 0.894 |
+| F1 (τ=0.70) | 0.824 | **0.861** | 0.776 |
+| Open-set AUROC | 0.716 | 0.668 | **0.797** |
+| Non-match rejection | 0.533 | 0.267 | 0.733 |
+
+DINOv2 leads on closed-set retrieval. The Rank-1/Rank-5 gap (0.907 → 0.996)
+shows the correct identity is almost always in the top-5; failures are rank
+confusion between visually similar dogs, not complete misses.
+
+One notable result: EfficientNet-B0 outperforms DINOv2 on open-set AUROC
+(0.797 vs 0.716). DINOv2's high closed-set confidence scores compress the
+similarity range, reducing separation between known and unknown queries.
+This is a genuine finding — open-set performance does not simply follow
+closed-set retrieval quality.
+
+ResNet50 achieves the highest F1 at the default threshold (0.861) because
+its lower absolute scores mean more queries fall above 0.70 for the
+right identity (higher recall), while DINOv2 is more conservative at that
+threshold (precision 0.964, recall 0.719).
 
 ---
 
 ## Failure Modes
 
-**1. Same-coat confusion within visually similar breeds.**
-Dogs with uniform dark or light coats can produce cosine similarities of
+**1. Same-coat confusion within visually similar individuals.**
+Dogs with uniform dark or light coats produce cosine similarities of
 0.70–0.76 against the wrong identity, with the correct identity sitting at
-rank 2 or 3 within 0.02. The model has no problem identifying the right
-individual in abstract — it lands in the top-5 almost always — but the
-score gap between ranks 1 and 2 is too small to be reliable when coat colour
-dominates the embedding.
+rank 2 or 3 within 0.02 points. The model has no difficulty placing the
+right individual in the top-5 (Rank-5 0.996), but the score gap between
+ranks 1 and 2 is too small to rely on when coat colour dominates the
+embedding. This accounts for most of the 25 Rank-1 failures observed.
 
-*Mitigation:* Fine-tune the backbone on identity-labelled pairs with a
-triplet or ArcFace loss. Even a small number of identity pairs (50–100
-individuals, 5–10 images each) can significantly compress intra-class
-distances and expand inter-class distances. Alternatively, segment the
-animal first and embed face/head crops separately from body, then fuse.
+*Mitigation:* Fine-tune the backbone on identity-labelled pairs using a
+triplet or ArcFace loss. Even a small set of identity pairs (50–100
+individuals, 5–10 images each) can compress intra-class distances and
+expand inter-class distances. Alternatively, detect and embed the face/head
+crop separately from the full body, then fuse both scores.
 
 **2. Open-set queries landing in the abstention band.**
 Unknown dogs frequently score between τ_possible (0.55) and τ_match (0.70),
-producing `possible_match` rather than a confident rejection. Hard
-`unknown_accuracy` is therefore low even when the AUROC (separation signal
-in embedding space) is reasonable. The thresholds shipped as defaults are
-not calibrated — they are starting points.
+producing `possible_match` rather than a confident rejection.
+`unknown_accuracy` (hard rejection rate) for DINOv2 is 0.10, while
+`non_match_rejection` (rejected as unknown or possible_match) is 0.533.
+AUROC 0.716 confirms the separation signal exists in the embedding space;
+the issue is threshold calibration, not a fundamental failure of the
+feature extractor.
 
-*Mitigation:* Run a threshold sweep on a held-out validation fold and pick
-τ_match to optimise the operating cost (false-positive match vs.
-false-negative rejection). The sweep output is in `results/` after
-evaluation. For a production system, thresholds must be frozen on
-validation data before final test reporting.
+*Mitigation:* Run a threshold sweep on a held-out validation fold and select
+τ_match to balance false-positive matches against false-negative rejections
+given the actual cost of each error. Thresholds must be frozen on validation
+data and not re-tuned on the test set.
 
 ---
 
@@ -90,44 +120,35 @@ Adapting this pipeline to sheep is directly relevant to AgroLedger's product
 and harder than the dog case for three structural reasons.
 
 **Visual homogeneity by design.** Sheep within a flock are often the same
-breed and selected specifically to look alike. The inter-individual visual
+breed, selected specifically to look alike. The inter-individual visual
 variance that DINOv2 exploits in dogs is much smaller here. Rank-1 accuracy
 would drop substantially under the same setup.
 
-**Appearance instability over time.** A dog's coat is relatively stable.
-A sheep's appearance changes dramatically with wool growth, shearing, mud,
-weather, and season. Two images of the same animal taken three months apart
-can look like different individuals to an embedding model. The gallery
-prototype strategy (averaging reference images) has no way to model this
-temporal drift.
+**Appearance instability over time.** A dog's coat is relatively stable. A
+sheep's appearance changes dramatically with wool growth, shearing, mud,
+weather, and season. Two images of the same animal taken months apart can
+look like different individuals to an embedding model. The gallery prototype
+strategy has no way to model this temporal drift.
 
-**Limited identity-labelled data.** DogFaceNet has ~1,400 labelled identities.
-No comparable public dataset exists for sheep. Without identity labels,
-metric learning fine-tuning is not straightforward. Few-shot adaptation
-(e.g. prototypical networks) trained on dog identities and transferred to
-sheep is plausible but untested at the scale AgroLedger would need.
+**Limited identity-labelled data.** DogFaceNet has ~1,400 labelled
+identities. No comparable public dataset exists for sheep. Without identity
+labels, metric learning fine-tuning is not straightforward.
 
 **What would need to change:**
+Ear tags are the most reliable individual identifier already deployed in
+the industry. A practical system should detect and OCR the ear tag as a
+primary signal, with visual embedding as a fallback or confirmation —
+directly relevant to AgroLedger's existing farm data infrastructure.
+The backbone would need fine-tuning on sheep-specific data, even starting
+from DINOv2, since global appearance features are less discriminative;
+local features (ear shape, facial markings, tag position) would need to be
+up-weighted. The gallery should also be updated incrementally as an animal's
+appearance changes across seasons, storing multiple reference images over
+time and returning max-over-references similarity rather than a single
+averaged prototype.
 
-- The feature extractor would need fine-tuning on sheep-specific data,
-  even if starting from DINOv2. Global appearance features are less
-  discriminative; local features (ear shape, facial markings, tag position)
-  would need to be up-weighted.
-- Ear tags are the most reliable individual identifier already deployed
-  in the industry. A practical system should detect and OCR the ear tag as
-  a primary signal, with visual embedding as a fallback or confirmation.
-  AgroLedger's existing farm records (RFID, pen location, weight history)
-  could fuse with the visual similarity score rather than replacing it.
-- Temporal modelling matters. A gallery should be updated incrementally
-  as the animal's appearance changes. Storing multiple reference images
-  across time and returning a max-over-references similarity, rather than
-  a single averaged prototype, would help handle seasonal variation.
-- The open-set case is more important for sheep than for dogs. In a working
-  farm setting, new animals arrive regularly. The pipeline should default to
-  flagging unknowns for human review rather than forcing a match.
-
-In short: the same retrieval architecture is a valid starting point, but
-the assumptions about visual distinctiveness and data availability do not
-transfer cleanly. The value of the visual component would be in reducing
-human review load — from checking every individual to only checking those
-flagged as ambiguous — rather than replacing human judgment entirely.
+In short: the retrieval architecture transfers; the assumptions about visual
+distinctiveness and data availability do not. The value of visual ReID for
+sheep would be in reducing human review load — from checking every animal to
+only checking those flagged as ambiguous — rather than replacing human
+judgment entirely.
