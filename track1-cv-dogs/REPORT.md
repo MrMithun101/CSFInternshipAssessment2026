@@ -80,6 +80,24 @@ its lower absolute scores mean more queries fall above 0.70 for the
 right identity (higher recall), while DINOv2 is more conservative at that
 threshold (precision 0.964, recall 0.719).
 
+**Threshold sweep (DINOv2, τ_possible = τ_match − 0.15):**
+
+| τ_match | Precision | Recall | F1 | Unknown acc. | Non-match rej. |
+|---|---|---|---|---|---|
+| 0.40 | 0.907 | 1.000 | **0.951** | 0.000 | 0.000 |
+| 0.55 | 0.909 | 0.976 | 0.941 | 0.000 | 0.100 |
+| 0.60 | 0.922 | 0.944 | 0.933 | 0.067 | 0.200 |
+| **0.70** | **0.964** | 0.719 | 0.824 | 0.100 | 0.533 |
+| 0.80 | 1.000 | 0.293 | 0.453 | 0.267 | 1.000 |
+
+F1 peaks at τ=0.40 (0.951) but rejects zero unknowns there — the model
+confidently assigns every unknown to the nearest gallery identity. The
+default τ=0.70 is a deliberate operating compromise: precision 0.964 with
+53% of unknowns rejected, at the cost of recall dropping to 0.719. The
+right threshold depends on the cost of a false-positive match vs. the cost
+of sending a query to human review, and must be picked on a validation fold
+rather than the test set.
+
 ---
 
 ## Failure Modes

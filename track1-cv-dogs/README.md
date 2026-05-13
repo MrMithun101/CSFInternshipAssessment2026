@@ -36,7 +36,8 @@ python src/evaluate.py \
     --labels   data/sample/labels.csv \
     --threshold 0.70 \
     --possible-threshold 0.55 \
-    --output   results/metrics.json
+    --output   results/metrics.json \
+    --sweep    # also writes results/metrics_sweep.csv
 
 # 3. Visualise success and failure cases
 python src/visualise.py \
@@ -109,7 +110,8 @@ python src/evaluate.py \
     --labels   data/dogfacenet/split/labels.csv \
     --threshold 0.70 \
     --possible-threshold 0.55 \
-    --output   results/metrics.json
+    --output   results/metrics.json \
+    --sweep    # also writes results/metrics_sweep.csv
 ```
 
 ### 5. Visualise
