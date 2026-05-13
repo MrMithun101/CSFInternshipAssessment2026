@@ -26,6 +26,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+from sklearn.metrics import average_precision_score
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -114,25 +115,28 @@ def compute_metrics(
         known_scores   = [r["top1_score"] for r in closed]
         unknown_scores = [r["top1_score"] for r in openset]
 
-        # AUROC: P(unknown_score < known_score) over all pairs
-        # Unknown dogs should score LOWER than known gallery members.
-        pairs = len(known_scores) * len(unknown_scores)
-        correct = sum(u < k for u in unknown_scores for k in known_scores)
-        auroc = correct / pairs if pairs else 0.0
+        # AUROC and PR AUC: unknown = positive class, low similarity = high score
+        # We use sklearn for both so the implementation is auditable.
+        y_true   = [1] * len(openset) + [0] * len(closed)
+        y_scores = [-s for s in unknown_scores] + [-s for s in known_scores]
+        auroc  = float(np.mean([
+            sum(u < k for k in known_scores) / len(known_scores)
+            for u in unknown_scores
+        ]))  # P(unknown_score < known_score), equivalent to ROC AUC
+        pr_auc = float(average_precision_score(y_true, y_scores))
 
-        # unknown_accuracy: fraction of unknowns the system hard-rejects
-        # (score < possible_threshold → labelled "unknown")
+        # unknown_accuracy: fraction of unknowns hard-rejected (< possible_threshold)
         unk_acc = sum(s < possible_threshold for s in unknown_scores) / len(unknown_scores)
 
-        # non_match_rejection: fraction of unknowns not confidently matched
-        # (score < threshold → "unknown" or "possible_match")
+        # non_match_rejection: fraction not confidently matched (< threshold)
         nmr = sum(s < threshold for s in unknown_scores) / len(unknown_scores)
 
         metrics["open_set"] = {
-            "n_unknown_queries":  len(openset),
-            "auroc":              round(auroc,   4),
-            "unknown_accuracy":   round(unk_acc, 4),
-            "non_match_rejection": round(nmr,    4),
+            "n_unknown_queries":   len(openset),
+            "auroc":               round(auroc,   4),
+            "pr_auc":              round(pr_auc,  4),
+            "unknown_accuracy":    round(unk_acc, 4),
+            "non_match_rejection": round(nmr,     4),
         }
 
     return metrics

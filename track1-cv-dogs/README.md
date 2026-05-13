@@ -114,7 +114,21 @@ python src/evaluate.py \
     --sweep    # also writes results/metrics_sweep.csv
 ```
 
-### 5. Visualise
+### 5. Cross-validate
+
+```bash
+python src/cross_validate.py \
+    --reference data/dogfacenet/split/reference \
+    --query     data/dogfacenet/split/query \
+    --labels    data/dogfacenet/split/labels.csv \
+    --output    results/cv_metrics.json
+```
+
+Runs 2-fold leave-one-shot-out CV (each reference image rotates into the
+query pool once). Reports mean ± std for Rank-1, Rank-5, mAP, F1, AUROC,
+and PR AUC across folds.
+
+### 6. Visualise
 
 ```bash
 python src/visualise.py \

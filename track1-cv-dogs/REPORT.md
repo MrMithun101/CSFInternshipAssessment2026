@@ -53,6 +53,7 @@ identity-labelled, making ReID evaluation impossible without manual curation.
 
 ## Evaluation Results
 
+**Single-split evaluation** (2 reference images per gallery identity):
 Split: 90 closed identities (180 reference images, 270 closed queries),
 10 open-set identities (30 unknown queries). All thresholds at defaults.
 
@@ -63,22 +64,37 @@ Split: 90 closed identities (180 reference images, 270 closed queries),
 | mAP | **0.942** | 0.881 | 0.894 |
 | F1 (τ=0.70) | 0.824 | **0.861** | 0.776 |
 | Open-set AUROC | 0.716 | 0.668 | **0.797** |
+| PR AUC | 0.277 | 0.198 | **0.309** |
 | Non-match rejection | 0.533 | 0.267 | 0.733 |
 
-DINOv2 leads on closed-set retrieval. The Rank-1/Rank-5 gap (0.907 → 0.996)
-shows the correct identity is almost always in the top-5; failures are rank
-confusion between visually similar dogs, not complete misses.
+**2-fold leave-one-shot-out cross-validation** (DINOv2, 1 reference image
+per gallery identity per fold):
+
+| Metric | Mean ± Std |
+|---|---|
+| Rank-1 | 0.781 ± 0.006 |
+| Rank-5 | 0.960 ± 0.007 |
+| mAP | 0.853 ± 0.006 |
+| F1 (τ=0.70) | 0.632 ± 0.014 |
+| AUROC | 0.644 ± 0.010 |
+| PR AUC | 0.181 ± 0.016 |
+
+The CV numbers are lower than the single-split numbers because each fold
+uses only 1 reference image per gallery identity — the harder, more
+realistic scenario representing minimal enrollment (one photo per animal).
+The held-out reference images also become additional known queries,
+introducing harder positive cases. The low std (± 0.006 on Rank-1) confirms
+the numbers are stable across folds, not a lucky draw.
+
+DINOv2 leads the single-split on closed-set retrieval. The Rank-1/Rank-5
+gap (0.907 → 0.996) shows the correct identity is almost always in the
+top-5; failures are rank confusion between visually similar dogs, not
+complete misses.
 
 One notable result: EfficientNet-B0 outperforms DINOv2 on open-set AUROC
-(0.797 vs 0.716). DINOv2's high closed-set confidence scores compress the
+and PR AUC. DINOv2's high closed-set confidence scores compress the
 similarity range, reducing separation between known and unknown queries.
-This is a genuine finding — open-set performance does not simply follow
-closed-set retrieval quality.
-
-ResNet50 achieves the highest F1 at the default threshold (0.861) because
-its lower absolute scores mean more queries fall above 0.70 for the
-right identity (higher recall), while DINOv2 is more conservative at that
-threshold (precision 0.964, recall 0.719).
+Open-set performance does not simply follow closed-set retrieval quality.
 
 **Threshold sweep (DINOv2, τ_possible = τ_match − 0.15):**
 
