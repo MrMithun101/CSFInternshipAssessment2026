@@ -40,7 +40,15 @@ def fetch(output_dir: Path, max_identities: int, min_images: int):
     )
     print(f"Using column '{id_col}' as identity label")
 
-    counts = Counter(ds[id_col])
+    # ClassLabel stores integers; decode to string names if needed
+    feature = ds.features[id_col]
+    if hasattr(feature, "int2str"):
+        decode = feature.int2str
+    else:
+        decode = str
+
+    label_names = [decode(v) for v in ds[id_col]]
+    counts = Counter(label_names)
     eligible = sorted(
         [(ident, cnt) for ident, cnt in counts.items() if cnt >= min_images],
         key=lambda x: -x[1],
@@ -52,8 +60,7 @@ def fetch(output_dir: Path, max_identities: int, min_images: int):
     output_dir.mkdir(parents=True, exist_ok=True)
     per_id: dict[str, int] = {}
 
-    for item in tqdm(ds, desc="Saving images"):
-        ident = str(item[id_col])
+    for item, ident in tqdm(zip(ds, label_names), total=len(ds), desc="Saving images"):
         if ident not in selected:
             continue
 

@@ -52,7 +52,7 @@ def compute_metrics(
         ranked = [
             (row[f"identity_{k}"], float(row[f"score_{k}"]))
             for k in range(1, n_ranks + 1)
-            if f"identity_{k}" in row
+            if row.get(f"identity_{k}") and row.get(f"score_{k}")
         ]
         entry = {"query": q, "true_id": true_id, "ranked": ranked,
                  "top1_id": ranked[0][0], "top1_score": ranked[0][1]}

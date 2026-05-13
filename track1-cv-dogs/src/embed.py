@@ -9,6 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from typing import Optional
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -26,7 +28,7 @@ class Embedder:
         "efficientnet": None,
     }
 
-    def __init__(self, model_name: str = "dinov2", device: str | None = None):
+    def __init__(self, model_name: str = "dinov2", device: Optional[str] = None):
         self.model_name = model_name
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self._build()

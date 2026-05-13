@@ -37,7 +37,7 @@ def label_map(path: Path) -> dict[str, str]:
     return {r["query_image"]: r["identity"] for r in load_csv(path)}
 
 
-def first_ref_image(identity: str, ref_dir: Path) -> Image.Image | None:
+def first_ref_image(identity: str, ref_dir: Path):
     id_dir = ref_dir / identity
     if not id_dir.exists():
         return None
@@ -130,7 +130,7 @@ def main():
         ranked = [
             (row[f"identity_{k}"], float(row[f"score_{k}"]))
             for k in range(1, n_ranks + 1)
-            if f"identity_{k}" in row
+            if row.get(f"identity_{k}") and row.get(f"score_{k}")
         ]
         case = {"query": q, "true_id": true_id, "ranked": ranked}
         (successes if ranked[0][0] == true_id else failures).append(case)
