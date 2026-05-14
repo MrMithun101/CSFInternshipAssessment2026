@@ -21,6 +21,7 @@ Output CSV columns:
 import argparse
 import csv
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -59,13 +60,15 @@ def rank_queries(
     top_k: int,
     threshold: float,
     possible_threshold: float,
-) -> list[dict]:
+) -> tuple[list[dict], float]:
+    """Return (rows, latency_per_image_seconds)."""
     paths = sorted(
         p for p in query_dir.iterdir()
         if p.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}
     )
     rows = []
     batch_size = 16
+    t_start = time.perf_counter()
 
     for i in tqdm(range(0, len(paths), batch_size), desc="Querying"):
         batch = paths[i : i + batch_size]
@@ -90,7 +93,8 @@ def rank_queries(
                 row[f"score_{rank}"] = round(float(sim[idx]), 6)
             rows.append(row)
 
-    return rows
+    latency = (time.perf_counter() - t_start) / max(len(paths), 1)
+    return rows, latency
 
 
 def save_results(rows: list[dict], output: Path, top_k: int):
@@ -126,7 +130,7 @@ def main():
     names, gallery = build_gallery(args.reference, embedder)
     print(f"  {len(names)} identities in gallery")
 
-    rows = rank_queries(
+    rows, latency = rank_queries(
         args.query, names, gallery, embedder,
         top_k=args.top_k,
         threshold=args.threshold,
@@ -135,6 +139,8 @@ def main():
 
     save_results(rows, args.output, top_k=args.top_k)
     print(f"Saved {len(rows)} rows → {args.output}")
+    print(f"Latency: {latency * 1000:.1f} ms/query  ({latency:.4f} s/query)  "
+          f"[{args.model}, CPU, batch=16]")
 
 
 if __name__ == "__main__":

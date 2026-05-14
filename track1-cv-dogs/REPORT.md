@@ -105,14 +105,14 @@ the correct identity at Rank-1 in the single-split run.
 | mAP | **0.968** | 0.942 | 0.919 |
 | F1 (τ=0.70) | **0.905** | 0.875 | 0.914 |
 | AUROC | 0.838 | **0.865** | 0.821 |
-| Inference speed | ~2.2s/batch | **~1.1s/batch** | ~2.2s/batch |
+| CPU latency/query | **28 ms** | 66 ms | 127 ms |
 
-DINOv2 leads on retrieval quality (Rank-1, mAP) — confirming that self-supervised
-features better capture individual-level visual differences. EfficientNet-B0 has
-marginally higher AUROC (0.865 vs 0.838) and runs 2× faster, making it a reasonable
-choice in latency-constrained deployments where Rank-1 accuracy can be traded off.
-ResNet50 is the weakest retriever but has identical inference cost to DINOv2 with
-no quality advantage.
+Latency measured on CPU, batch size 16, Apple Silicon (MPS unused), averaged over
+300 query images. DINOv2 is both the most accurate and the fastest — its ViT
+architecture amortises well in batches. EfficientNet has marginally higher AUROC
+and is a reasonable choice when raw throughput is secondary to open-set separation.
+ResNet50 is the weakest on every dimension and 4.5× slower than DINOv2 under this
+setup; it remains useful only as a reproducibility baseline.
 
 F1 peaks at τ=0.40 (0.970) but rejects zero unknowns there. The default
 τ=0.70 is the operating compromise: precision 0.965, recall 0.851, with
