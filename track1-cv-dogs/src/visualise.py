@@ -103,6 +103,46 @@ def _border(ax, color: str, lw: float):
         spine.set_linewidth(lw)
 
 
+def plot_score_distribution(results_path: Path, labels_path: Path, output_path: Path):
+    """Overlay histogram of correct-match scores vs wrong-match scores."""
+    labels = label_map(labels_path)
+    same_scores, diff_scores, unknown_scores = [], [], []
+
+    for row in load_csv(results_path):
+        true_id   = labels.get(row["query_image"])
+        top_id    = row.get("identity_1", "")
+        top_score = row.get("score_1")
+        if not top_id or not top_score:
+            continue
+        score = float(top_score)
+        if true_id == "unknown":
+            unknown_scores.append(score)
+        elif top_id == true_id:
+            same_scores.append(score)
+        else:
+            diff_scores.append(score)
+
+    fig, ax = plt.subplots(figsize=(9, 4))
+    bins = np.linspace(0.3, 1.0, 35)
+    if same_scores:
+        ax.hist(same_scores,    bins=bins, alpha=0.65, color="#2ca02c", label=f"Correct match (n={len(same_scores)})")
+    if diff_scores:
+        ax.hist(diff_scores,    bins=bins, alpha=0.65, color="#d62728", label=f"Wrong match (n={len(diff_scores)})")
+    if unknown_scores:
+        ax.hist(unknown_scores, bins=bins, alpha=0.65, color="#ff7f0e", label=f"Unknown (n={len(unknown_scores)})")
+    ax.axvline(0.70, color="black",  linestyle="--", linewidth=1.5, label="τ_match = 0.70")
+    ax.axvline(0.55, color="gray",   linestyle=":",  linewidth=1.5, label="τ_possible = 0.55")
+    ax.set_xlabel("Cosine similarity (top-1 score)")
+    ax.set_ylabel("Query count")
+    ax.set_title("Score distribution: correct vs wrong vs unknown")
+    ax.legend(fontsize=9)
+    plt.tight_layout()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(output_path, dpi=100)
+    plt.close()
+    print(f"Saved {output_path}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Visualise ReID results")
     ap.add_argument("--results",    required=True, type=Path)
@@ -144,6 +184,11 @@ def main():
     plot_grid(failures, args.reference, args.query,
               "Failure Cases (Rank-1 wrong)",
               args.output_dir / "failure_cases.png", top_k, args.n_cases)
+
+    plot_score_distribution(
+        args.results, args.labels,
+        args.output_dir / "score_distribution.png"
+    )
 
 
 if __name__ == "__main__":

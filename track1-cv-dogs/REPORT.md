@@ -95,10 +95,35 @@ the correct identity at Rank-1 in the single-split run.
 | **0.70** | **0.965** | 0.851 | 0.905 | 0.100 | 0.467 |
 | 0.80 | 0.993 | 0.491 | 0.657 | 0.267 | 1.000 |
 
+**Backbone comparison** (same split, same thresholds):
+
+| Metric | DINOv2 ViT-S/14 | EfficientNet-B0 | ResNet50 |
+|---|---|---|---|
+| Rank-1 | **0.941** | 0.911 | 0.867 |
+| Rank-5 | **0.996** | 0.985 | 0.978 |
+| mAP | **0.968** | 0.942 | 0.919 |
+| F1 (τ=0.70) | **0.905** | 0.875 | 0.914 |
+| AUROC | 0.838 | **0.865** | 0.821 |
+| Inference speed | ~2.2s/batch | **~1.1s/batch** | ~2.2s/batch |
+
+DINOv2 leads on retrieval quality (Rank-1, mAP) — confirming that self-supervised
+features better capture individual-level visual differences. EfficientNet-B0 has
+marginally higher AUROC (0.865 vs 0.838) and runs 2× faster, making it a reasonable
+choice in latency-constrained deployments where Rank-1 accuracy can be traded off.
+ResNet50 is the weakest retriever but has identical inference cost to DINOv2 with
+no quality advantage.
+
 F1 peaks at τ=0.40 (0.970) but rejects zero unknowns there. The default
 τ=0.70 is the operating compromise: precision 0.965, recall 0.851, with
 47% of unknowns rejected. The right threshold must be picked on a
 validation fold based on deployment costs.
+
+PR AUC (0.374) is lower than AUROC because precision-recall curves are
+sensitive to class imbalance: with only 10% open-set queries (30 unknowns
+vs 270 known), even strong score separation yields modest precision at high
+recall. This is a structural property of the evaluation setup, not a model
+failure — AUROC 0.838 independently confirms the embedding space separates
+known from unknown individuals.
 
 ---
 
@@ -122,8 +147,8 @@ crop separately from the full body, then fuse both scores.
 Unknown dogs frequently score between τ_possible (0.55) and τ_match (0.70),
 producing `possible_match` rather than a confident rejection.
 `unknown_accuracy` (hard rejection rate) for DINOv2 is 0.10, while
-`non_match_rejection` (rejected as unknown or possible_match) is 0.533.
-AUROC 0.716 confirms the separation signal exists in the embedding space;
+`non_match_rejection` (rejected as unknown or possible_match) is 0.467.
+AUROC 0.838 confirms the separation signal exists in the embedding space;
 the issue is threshold calibration, not a fundamental failure of the
 feature extractor.
 

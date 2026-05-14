@@ -8,6 +8,8 @@ images by how likely they depict the same individual.
 
 ## Setup
 
+Requires **Python ≥ 3.9**.
+
 ```bash
 cd track1-cv-dogs
 python -m venv .venv
@@ -56,6 +58,12 @@ Results land in `results/` (gitignored):
 | `metrics.json` | Rank-1, Rank-5, mAP, F1, open-set AUROC |
 | `success_cases.png` | Grid of Rank-1 correct retrievals |
 | `failure_cases.png` | Grid of Rank-1 wrong retrievals |
+| `score_distribution.png` | Histogram of correct vs wrong vs unknown scores |
+
+Expected output on the 3-identity synthetic sample (smoke test):
+```json
+{"closed_set": {"rank1": 1.0, "rank5": 1.0, "map": 1.0, "f1": 1.0}}
+```
 
 ---
 
@@ -124,8 +132,8 @@ python src/cross_validate.py \
     --output    results/cv_metrics.json
 ```
 
-Runs 2-fold leave-one-shot-out CV (each reference image rotates into the
-query pool once). Reports mean ± std for Rank-1, Rank-5, mAP, F1, AUROC,
+Runs leave-one-shot-out CV (one reference image per fold rotates into the
+query pool). Reports mean ± std for Rank-1, Rank-5, mAP, F1, AUROC,
 and PR AUC across folds.
 
 ### 6. Visualise
@@ -139,6 +147,10 @@ python src/visualise.py \
     --output-dir results \
     --n-cases 5
 ```
+
+Produces three output files: `success_cases.png`, `failure_cases.png`, and
+`score_distribution.png` (overlaid histogram of correct-match, wrong-match,
+and unknown query scores with threshold lines).
 
 ---
 
