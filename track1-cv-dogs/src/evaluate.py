@@ -142,17 +142,14 @@ def compute_metrics(
     return metrics
 
 
-def threshold_sweep(
+def _build_sweep_rows(
     results: list[dict],
     labels: dict[str, str],
-    sweep_output: Path,
     lo: float = 0.40,
     hi: float = 0.95,
     step: float = 0.05,
-) -> None:
-    """Sweep τ_match from lo to hi; τ_possible = τ_match - 0.15 (floored at 0).
-    Writes a CSV with one row per threshold level.
-    """
+) -> list[dict]:
+    """Return per-threshold sweep rows (shared by threshold_sweep and find_optimal_threshold)."""
     n_ranks = sum(1 for k in results[0] if k.startswith("identity_"))
 
     closed, openset = [], []
@@ -169,11 +166,9 @@ def threshold_sweep(
         entry = {"true_id": true_id, "top1_id": ranked[0][0], "top1_score": ranked[0][1]}
         (openset if true_id == "unknown" else closed).append(entry)
 
-    known_scores   = [r["top1_score"] for r in closed]
     unknown_scores = [r["top1_score"] for r in openset]
 
-    thresholds = []
-    t = lo
+    thresholds, t = [], lo
     while t <= hi + 1e-9:
         thresholds.append(round(t, 2))
         t += step
@@ -181,18 +176,14 @@ def threshold_sweep(
     rows = []
     for tau in thresholds:
         poss_tau = max(0.0, round(tau - 0.15, 2))
-
         tp = sum(r["top1_id"] == r["true_id"] and r["top1_score"] >= tau for r in closed)
         fp = sum(r["top1_id"] != r["true_id"] and r["top1_score"] >= tau for r in closed)
         fn = sum(r["top1_score"] < tau for r in closed)
-
         prec = tp / (tp + fp) if (tp + fp) else 0.0
         rec  = tp / (tp + fn) if (tp + fn) else 0.0
         f1   = 2 * prec * rec / (prec + rec) if (prec + rec) else 0.0
-
         unk_acc = sum(s < poss_tau for s in unknown_scores) / len(unknown_scores) if unknown_scores else 0.0
-        nmr     = sum(s < tau for s in unknown_scores) / len(unknown_scores) if unknown_scores else 0.0
-
+        nmr     = sum(s < tau     for s in unknown_scores) / len(unknown_scores) if unknown_scores else 0.0
         rows.append({
             "tau_match":           tau,
             "tau_possible":        poss_tau,
@@ -202,6 +193,35 @@ def threshold_sweep(
             "unknown_accuracy":    round(unk_acc, 4),
             "non_match_rejection": round(nmr,     4),
         })
+    return rows
+
+
+def find_optimal_threshold(results: list[dict], labels: dict[str, str]) -> dict:
+    """Return the τ_match that maximises F1, plus its precision/recall/F1."""
+    rows = _build_sweep_rows(results, labels)
+    best = max(rows, key=lambda r: r["f1"])
+    return {
+        "tau_match":    best["tau_match"],
+        "tau_possible": best["tau_possible"],
+        "precision":    best["precision"],
+        "recall":       best["recall"],
+        "f1":           best["f1"],
+    }
+
+
+def threshold_sweep(
+    results: list[dict],
+    labels: dict[str, str],
+    sweep_output: Path,
+    lo: float = 0.40,
+    hi: float = 0.95,
+    step: float = 0.05,
+) -> None:
+    """Sweep τ_match from lo to hi; τ_possible = τ_match - 0.15 (floored at 0).
+    Writes a CSV with one row per threshold level.
+    """
+    rows = _build_sweep_rows(results, labels, lo, hi, step)
+    best = max(rows, key=lambda r: r["f1"])
 
     sweep_output.parent.mkdir(parents=True, exist_ok=True)
     with open(sweep_output, "w", newline="") as f:
@@ -209,7 +229,6 @@ def threshold_sweep(
         w.writeheader()
         w.writerows(rows)
 
-    best = max(rows, key=lambda r: r["f1"])
     print(f"\nThreshold sweep → {sweep_output}")
     print(f"  {'tau':>6}  {'prec':>6}  {'rec':>6}  {'f1':>6}  {'unk_acc':>8}  {'nmr':>6}")
     for r in rows:
@@ -233,11 +252,19 @@ def main():
     labels  = label_map(args.labels)
     metrics = compute_metrics(results, labels, args.threshold, args.possible_threshold)
 
+    # Always find and report the F1-optimal threshold alongside the fixed one
+    optimal = find_optimal_threshold(results, labels)
+    metrics["optimal_threshold"] = optimal
+
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with open(args.output, "w") as f:
         json.dump(metrics, f, indent=2)
 
     print(json.dumps(metrics, indent=2))
+
+    opt = optimal
+    print(f"\nF1-optimal threshold: τ={opt['tau_match']} "
+          f"(precision={opt['precision']}, recall={opt['recall']}, F1={opt['f1']})")
 
     if args.sweep:
         sweep_path = args.output.parent / (args.output.stem + "_sweep.csv")

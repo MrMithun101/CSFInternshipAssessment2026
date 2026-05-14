@@ -57,15 +57,16 @@ identity-labelled, making ReID evaluation impossible without manual curation.
 Split: 90 closed identities (360 reference images, 270 closed queries),
 10 open-set identities (30 unknown queries). All thresholds at defaults.
 
-| Metric | DINOv2 ViT-S/14 |
-|---|---|
-| Rank-1 | **0.941** |
-| Rank-5 | **0.996** |
-| mAP | **0.968** |
-| F1 (τ=0.70) | **0.905** |
-| AUROC | **0.838** |
-| PR AUC | **0.374** |
-| Non-match rejection | 0.467 |
+| Metric | DINOv2 ViT-S/14 | Why |
+|---|---|---|
+| Rank-1 | **0.941** | Core question: is the correct dog ranked first? |
+| Rank-5 | **0.996** | Is the correct dog in the top-5 shortlist? |
+| mAP | **0.968** | Average precision over the full ranked list |
+| F1 (τ=0.70) | **0.905** | Precision–recall balance at the operating threshold |
+| F1-optimal τ | **0.969** (τ=0.40) | Best achievable F1; swept automatically over τ ∈ [0.40, 0.95] |
+| AUROC | **0.838** | Threshold-free separation of known vs unknown queries |
+| PR AUC | **0.374** | Precision–recall for open-set (low due to 10% unknown ratio) |
+| Non-match rejection | 0.467 | Fraction of unknowns not confidently matched |
 
 **4-fold leave-one-shot-out cross-validation** (DINOv2, 3 reference images
 per gallery identity per fold):

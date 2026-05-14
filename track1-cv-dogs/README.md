@@ -67,6 +67,29 @@ Expected output on the 3-identity synthetic sample (smoke test):
 
 ---
 
+## Ad-hoc inference (no dataset required)
+
+Run the pipeline on your own images directly — no directory structure needed:
+
+```bash
+python src/inference.py \
+    -r ref1.jpg ref2.jpg \
+    -q query1.jpg query2.jpg query3.jpg \
+    --model dinov2
+
+# Output:
+# Rank  Score    Decision         Query
+# ────────────────────────────────────────────────────────────
+# 1     0.9917   MATCH            query1.jpg
+# 2     0.7103   MATCH            query2.jpg
+# 3     0.4821   UNKNOWN          query3.jpg
+```
+
+Multiple reference images are averaged into a single prototype. Decisions follow
+the same two-threshold rule as the full pipeline (`--threshold`, `--possible-threshold`).
+
+---
+
 ## Full evaluation on DogFaceNet
 
 ### 1. Download data
