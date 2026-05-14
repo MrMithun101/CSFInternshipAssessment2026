@@ -1,0 +1,28 @@
+# environments
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# model weights and large checkpoints
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.ckpt
+
+# downloaded datasets (use fetch_dogfacenet.py to reproduce)
+data/dogfacenet/
+
+# generated results (reproduced by running the pipeline)
+results/
+
+# HuggingFace cache
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
