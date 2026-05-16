@@ -9,8 +9,11 @@ router.get('/', (req, res) => {
 
 router.post('/', (req, res) => {
   const { name, capacity } = req.body;
-  if (!name || !capacity) {
+  if (!name || capacity == null) {
     return res.status(400).json({ error: 'name and capacity are required' });
+  }
+  if (typeof capacity !== 'number' || !Number.isInteger(capacity) || capacity < 1) {
+    return res.status(422).json({ error: 'capacity must be a positive integer' });
   }
   const result = db.prepare(
     'INSERT INTO paddocks (name, capacity) VALUES (?, ?)'

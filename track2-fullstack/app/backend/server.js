@@ -24,6 +24,13 @@ function start(port = PORT) {
   return server;
 }
 
+// Global error handler — catches any uncaught synchronous throws from routes
+// and ensures the response is always JSON, never an HTML error page.
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
 if (require.main === module) {
   start();
 }
