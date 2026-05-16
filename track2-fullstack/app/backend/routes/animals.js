@@ -2,8 +2,9 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 
-// Re-usable helper: fetch a paddock with its live animal count.
-// Using COUNT(*) means the value is always accurate — no stored counter to drift.
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+// Fetch a paddock with its live animal count (derived via COUNT(*)).
 function getPaddockWithCount(id) {
   return db.prepare(`
     SELECT p.id, p.name, p.capacity, COUNT(a.id) AS animal_count
@@ -14,12 +15,28 @@ function getPaddockWithCount(id) {
   `).get(id);
 }
 
+// Validate that a date string is a real calendar date in YYYY-MM-DD format.
+function isValidDate(d) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+  const dt = new Date(d);
+  return !isNaN(dt.getTime());
+}
+
+// ─── Animal list ──────────────────────────────────────────────────────────────
+
 router.get('/', (req, res) => {
-  const page = parseInt(req.query.page) || 0;
-  const limit = parseInt(req.query.limit) || 10;
+  const page  = Math.max(0, parseInt(req.query.page)  || 0);
+  const limit = Math.max(1, parseInt(req.query.limit) || 10);
+  const tag   = req.query.tag ? req.query.tag.trim() : null;
 
   // Single query: animals + paddock name + latest health event + latest two
-  // weights (for trend calculation). All data in one round-trip; no N+1 queries.
+  // weights (for trend) + at-risk signals. All data in one round-trip.
+  const whereClause  = tag ? 'WHERE LOWER(a.tag_number) LIKE LOWER(?)' : '';
+  const limitClause  = tag ? '' : 'LIMIT ? OFFSET ?';
+  const queryParams  = tag
+    ? [`%${tag}%`]
+    : [limit, page * limit];
+
   const rows = db.prepare(`
     SELECT
       a.*,
@@ -52,8 +69,9 @@ router.get('/', (req, res) => {
       ORDER BY date DESC, id DESC
       LIMIT 1 OFFSET 1
     )
-    LIMIT ? OFFSET ?
-  `).all(limit, page * limit);
+    ${whereClause}
+    ${limitClause}
+  `).all(...queryParams);
 
   const result = rows.map(row => {
     const {
@@ -67,7 +85,7 @@ router.get('/', (req, res) => {
       : null;
 
     // Weight trend: kg gained (+) or lost (-) since the previous measurement.
-    // Rounded to one decimal place. null when fewer than two records exist.
+    // Rounded to one decimal. null when fewer than two records exist.
     const weight_trend = (lw_weight_kg != null && pw_weight_kg != null)
       ? Math.round((lw_weight_kg - pw_weight_kg) * 10) / 10
       : null;
@@ -76,11 +94,23 @@ router.get('/', (req, res) => {
       ? { weight_kg: lw_weight_kg, date: lw_date, trend: weight_trend }
       : null;
 
-    return { ...animal, latest_health_event, latest_weight };
+    // At-risk flag: aggregate early-warning signals that a farmer should act on.
+    //   • Losing weight  — a negative weight trend is the earliest detectable
+    //                      sign of illness or poor nutrition in livestock.
+    //   • Under treatment — the most recent health event was a treatment,
+    //                       meaning the animal has an active medical concern.
+    const risk_reasons = [];
+    if (weight_trend !== null && weight_trend < 0) risk_reasons.push('losing weight');
+    if (he_event_type === 'treatment') risk_reasons.push('under treatment');
+    const at_risk = risk_reasons.length > 0;
+
+    return { ...animal, latest_health_event, latest_weight, at_risk, risk_reasons };
   });
 
   res.json(result);
 });
+
+// ─── Animal CRUD ──────────────────────────────────────────────────────────────
 
 router.post('/', (req, res) => {
   const { name, tag_number, breed, date_of_birth, paddock_id } = req.body;
@@ -90,9 +120,9 @@ router.post('/', (req, res) => {
   }
 
   // Wrap the capacity check + insert in a transaction so that:
-  //   (a) a failed insert never leaves counts inconsistent, and
-  //   (b) two concurrent creates cannot both pass the capacity check
-  //       before either is committed (SQLite serialises writes).
+  //   (a) a failed insert never leaves any state partially modified, and
+  //   (b) two concurrent creates cannot both pass the capacity check before
+  //       either is committed (SQLite serialises write transactions).
   db.exec('BEGIN');
   try {
     if (paddock_id) {
@@ -146,9 +176,6 @@ router.put('/:id', (req, res) => {
     paddock_id:    'paddock_id' in req.body ? req.body.paddock_id : animal.paddock_id,
   };
 
-  // Wrap the capacity check + animal update in a transaction.
-  // Because animal_count is now derived via COUNT(*), we never touch paddock
-  // rows directly — the count updates itself the moment the animal row changes.
   db.exec('BEGIN');
   try {
     if (updates.paddock_id !== animal.paddock_id && updates.paddock_id) {
@@ -190,10 +217,12 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   const animal = db.prepare('SELECT * FROM animals WHERE id = ?').get(req.params.id);
   if (!animal) return res.status(404).json({ error: 'Animal not found' });
-  // No paddock counter to update — the derived COUNT(*) drops automatically.
+  // No paddock counter to update — the derived COUNT(*) adjusts automatically.
   db.prepare('DELETE FROM animals WHERE id = ?').run(req.params.id);
   res.json({ message: 'deleted' });
 });
+
+// ─── Health events ────────────────────────────────────────────────────────────
 
 router.get('/:id/health-events', (req, res) => {
   const animal = db.prepare('SELECT id FROM animals WHERE id = ?').get(req.params.id);
@@ -213,6 +242,9 @@ router.post('/:id/health-events', (req, res) => {
   if (!event_type || !date) {
     return res.status(400).json({ error: 'event_type and date are required' });
   }
+  if (!isValidDate(date)) {
+    return res.status(400).json({ error: 'date must be a valid date in YYYY-MM-DD format' });
+  }
 
   const result = db.prepare(
     'INSERT INTO health_events (animal_id, event_type, notes, date, vet_name) VALUES (?, ?, ?, ?, ?)'
@@ -221,6 +253,8 @@ router.post('/:id/health-events', (req, res) => {
   const event = db.prepare('SELECT * FROM health_events WHERE id = ?').get(result.lastInsertRowid);
   res.status(201).json(event);
 });
+
+// ─── Weights ──────────────────────────────────────────────────────────────────
 
 router.get('/:id/weights', (req, res) => {
   const animal = db.prepare('SELECT id FROM animals WHERE id = ?').get(req.params.id);
@@ -242,6 +276,9 @@ router.post('/:id/weights', (req, res) => {
     return res.status(422).json({ error: 'weight_kg must be a positive number' });
   }
   if (!date) return res.status(422).json({ error: 'date is required' });
+  if (!isValidDate(date)) {
+    return res.status(422).json({ error: 'date must be a valid date in YYYY-MM-DD format' });
+  }
 
   const result = db.prepare(
     'INSERT INTO weights (animal_id, weight_kg, date, notes) VALUES (?, ?, ?, ?)'

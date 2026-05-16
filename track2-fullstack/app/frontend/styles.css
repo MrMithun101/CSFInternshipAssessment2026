@@ -151,3 +151,17 @@ input:focus, select:focus { outline: 2px solid #4a8c2a; border-color: transparen
    ▼ red   = losing weight (potential early warning sign). */
 .trend-up   { color: #2d7a2d; font-size: 0.78rem; margin-left: 0.25rem; }
 .trend-down { color: #c0392b; font-size: 0.78rem; margin-left: 0.25rem; }
+
+/* At-risk row highlighting — draws the farmer's eye to animals needing attention. */
+tr.at-risk-row { background: #fff8f0 !important; }
+tr.at-risk-row:hover { background: #fff0e0 !important; }
+.at-risk-badge { color: #e67e22; font-size: 0.85rem; cursor: help; }
+
+/* Tag search bar */
+.search-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+.search-bar input { max-width: 260px; }

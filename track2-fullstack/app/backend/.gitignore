@@ -1,0 +1,14 @@
+# SQLite database files — runtime artifacts, not source code
+*.db
+*.db-shm
+*.db-wal
+
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.*
+
+# Editor
+.DS_Store

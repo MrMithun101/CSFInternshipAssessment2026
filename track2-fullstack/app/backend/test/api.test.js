@@ -433,3 +433,111 @@ test('GET /api/animals/:id/weights returns 404 for unknown animal', async () => 
   const { status } = await get('/animals/999999/weights');
   assert.equal(status, 404);
 });
+
+// ─── Tag search ───────────────────────────────────────────────────────────────
+
+test('GET /api/animals?tag= returns matching animals', async () => {
+  const { status, body } = await get('/animals?tag=TAG-001');
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(body));
+  assert.ok(body.length > 0);
+  assert.ok(body.every(a => a.tag_number.toLowerCase().includes('tag-001')));
+});
+
+test('GET /api/animals?tag= returns empty array for no match', async () => {
+  const { status, body } = await get('/animals?tag=DOES-NOT-EXIST-XYZ');
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(body));
+  assert.equal(body.length, 0);
+});
+
+test('GET /api/animals?tag= result includes latest_weight and at_risk fields', async () => {
+  const { body } = await get('/animals?tag=TAG-001');
+  assert.ok(body.length > 0);
+  assert.ok('latest_weight' in body[0]);
+  assert.ok('at_risk' in body[0]);
+  assert.ok('risk_reasons' in body[0]);
+});
+
+// ─── At-risk flag ─────────────────────────────────────────────────────────────
+
+test('GET /api/animals returns at_risk field', async () => {
+  const { body } = await get('/animals?page=0&limit=10');
+  assert.ok(body.length > 0);
+  assert.ok('at_risk' in body[0]);
+  assert.ok('risk_reasons' in body[0]);
+});
+
+test('GET /api/animals at_risk is true when weight trend is negative', async () => {
+  // Create a fresh animal and log two weights where second < first.
+  const { body: animal } = await post('/animals', { name: 'Shrinking', tag_number: 'TAG-RISK-001' });
+  await post(`/animals/${animal.id}/weights`, { weight_kg: 50.0, date: '2025-01-01' });
+  await post(`/animals/${animal.id}/weights`, { weight_kg: 47.0, date: '2025-02-01' });
+
+  const { body: list } = await get('/animals?page=0&limit=100');
+  const found = list.find(a => a.id === animal.id);
+  assert.ok(found);
+  assert.equal(found.at_risk, true);
+  assert.ok(found.risk_reasons.includes('losing weight'));
+});
+
+test('GET /api/animals at_risk is false when weight trend is positive', async () => {
+  const { body: animal } = await post('/animals', { name: 'Growing', tag_number: 'TAG-RISK-002' });
+  await post(`/animals/${animal.id}/weights`, { weight_kg: 45.0, date: '2025-01-01' });
+  await post(`/animals/${animal.id}/weights`, { weight_kg: 48.0, date: '2025-02-01' });
+
+  const { body: list } = await get('/animals?page=0&limit=100');
+  const found = list.find(a => a.id === animal.id);
+  assert.ok(found);
+  assert.equal(found.at_risk, false);
+});
+
+// ─── Paddock PUT ──────────────────────────────────────────────────────────────
+
+test('PUT /api/paddocks/:id updates name and capacity', async () => {
+  const { body: paddock } = await post('/paddocks', { name: 'Old Name', capacity: 10 });
+  const { status, body } = await put(`/paddocks/${paddock.id}`, { name: 'New Name', capacity: 20 });
+  assert.equal(status, 200);
+  assert.equal(body.name, 'New Name');
+  assert.equal(body.capacity, 20);
+});
+
+test('PUT /api/paddocks/:id returns 404 for unknown paddock', async () => {
+  const { status } = await put('/paddocks/999999', { name: 'Ghost' });
+  assert.equal(status, 404);
+});
+
+test('PUT /api/paddocks/:id returns 422 when capacity is below current occupancy', async () => {
+  const { body: paddock } = await post('/paddocks', { name: 'Full Pen', capacity: 5 });
+  await post('/animals', { name: 'A1', tag_number: 'TAG-CAP-OCC-1', paddock_id: paddock.id });
+  await post('/animals', { name: 'A2', tag_number: 'TAG-CAP-OCC-2', paddock_id: paddock.id });
+  const { status, body } = await put(`/paddocks/${paddock.id}`, { capacity: 1 });
+  assert.equal(status, 422);
+  assert.ok(body.error);
+});
+
+test('PUT /api/paddocks/:id returns 422 for invalid capacity', async () => {
+  const { body: paddock } = await post('/paddocks', { name: 'Resize Test', capacity: 10 });
+  const { status } = await put(`/paddocks/${paddock.id}`, { capacity: -5 });
+  assert.equal(status, 422);
+});
+
+// ─── Date validation ──────────────────────────────────────────────────────────
+
+test('POST /api/animals/:id/weights returns 422 for invalid date format', async () => {
+  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { status } = await post(`/animals/${animals[0].id}/weights`, {
+    weight_kg: 45,
+    date: 'not-a-date',
+  });
+  assert.equal(status, 422);
+});
+
+test('POST /api/animals/:id/health-events returns 400 for invalid date format', async () => {
+  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { status } = await post(`/animals/${animals[0].id}/health-events`, {
+    event_type: 'checkup',
+    date: '16/05/2026',
+  });
+  assert.equal(status, 400);
+});

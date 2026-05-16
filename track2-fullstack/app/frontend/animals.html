@@ -18,6 +18,10 @@
     <div class="page-header">
       <h2>Animals</h2>
     </div>
+    <div class="search-bar">
+      <input type="text" id="tag-search" placeholder="Search by tag number…" oninput="onTagInput(this.value)">
+      <button onclick="clearSearch()">Clear</button>
+    </div>
     <table>
       <thead>
         <tr>
@@ -43,6 +47,7 @@
   <script src="app.js"></script>
   <script>
     let currentPage = 0;
+    let currentTag  = '';
     const LIMIT = 5;
 
     function text(val, fallback) {
@@ -55,8 +60,28 @@
       return cell;
     }
 
+    let searchTimeout;
+    function onTagInput(val) {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        currentTag  = val.trim();
+        currentPage = 0;
+        loadAnimals();
+      }, 300);
+    }
+
+    function clearSearch() {
+      document.getElementById('tag-search').value = '';
+      currentTag  = '';
+      currentPage = 0;
+      loadAnimals();
+    }
+
     async function loadAnimals() {
-      const animals = await api.get(`/animals?page=${currentPage}&limit=${LIMIT}`);
+      const url = currentTag
+        ? `/animals?tag=${encodeURIComponent(currentTag)}`
+        : `/animals?page=${currentPage}&limit=${LIMIT}`;
+      const animals = await api.get(url);
       const tbody = document.getElementById('animals-body');
       tbody.replaceChildren();
 
@@ -74,13 +99,26 @@
 
       animals.forEach(a => {
         const row = document.createElement('tr');
+
+        // At-risk rows get a subtle visual treatment so farmers can spot
+        // animals needing attention without opening each detail page.
+        if (a.at_risk) row.className = 'at-risk-row';
+
         const ev = a.latest_health_event;
         const eventText = ev ? `${ev.event_type} (${ev.date})` : '—';
 
+        // Name cell: append a warning badge if the animal is flagged at-risk.
+        const nameCell = document.createElement('td');
+        nameCell.appendChild(document.createTextNode(a.name ?? ''));
+        if (a.at_risk) {
+          const badge = document.createElement('span');
+          badge.className = 'at-risk-badge';
+          badge.textContent = ' ⚠';
+          badge.title = `At risk: ${a.risk_reasons.join(', ')}`;
+          nameCell.appendChild(badge);
+        }
+
         // Latest weight cell with optional trend indicator (▲ gaining / ▼ losing).
-        // Trend is calculated server-side from the two most recent weight records.
-        // A positive trend means the animal is gaining weight; negative means losing.
-        // Losing weight is an early warning sign of illness in livestock.
         const weightCell = document.createElement('td');
         const lw = a.latest_weight;
         if (lw) {
@@ -104,7 +142,7 @@
         linkCell.appendChild(link);
 
         row.appendChild(td(a.tag_number));
-        row.appendChild(td(a.name));
+        row.appendChild(nameCell);
         row.appendChild(td(a.breed, '—'));
         row.appendChild(td(a.paddock_name, 'Unassigned'));
         row.appendChild(td(eventText));
@@ -113,9 +151,16 @@
         tbody.appendChild(row);
       });
 
-      document.getElementById('page-info').textContent = `Page ${currentPage + 1}`;
-      document.getElementById('prev-btn').disabled = currentPage === 0;
-      document.getElementById('next-btn').disabled = animals.length < LIMIT;
+      // Hide pagination controls during tag search — results are unfiltered by page.
+      const pagination = document.querySelector('.pagination');
+      if (currentTag) {
+        pagination.style.visibility = 'hidden';
+      } else {
+        pagination.style.visibility = 'visible';
+        document.getElementById('page-info').textContent = `Page ${currentPage + 1}`;
+        document.getElementById('prev-btn').disabled = currentPage === 0;
+        document.getElementById('next-btn').disabled = animals.length < LIMIT;
+      }
     }
 
     function changePage(dir) {

@@ -36,4 +36,25 @@ router.get('/:id', (req, res) => {
   res.json(paddock);
 });
 
+router.put('/:id', (req, res) => {
+  const paddock = db.prepare(`${PADDOCK_WITH_COUNT} WHERE p.id = ? GROUP BY p.id`).get(req.params.id);
+  if (!paddock) return res.status(404).json({ error: 'Paddock not found' });
+
+  const name     = req.body.name     ?? paddock.name;
+  const capacity = 'capacity' in req.body ? req.body.capacity : paddock.capacity;
+
+  if (typeof capacity !== 'number' || !Number.isInteger(capacity) || capacity < 1) {
+    return res.status(422).json({ error: 'capacity must be a positive integer' });
+  }
+  if (capacity < paddock.animal_count) {
+    return res.status(422).json({
+      error: `capacity cannot be less than current occupancy (${paddock.animal_count} animals)`
+    });
+  }
+
+  db.prepare('UPDATE paddocks SET name = ?, capacity = ? WHERE id = ?').run(name, capacity, req.params.id);
+  const updated = db.prepare(`${PADDOCK_WITH_COUNT} WHERE p.id = ? GROUP BY p.id`).get(req.params.id);
+  res.json(updated);
+});
+
 module.exports = router;
