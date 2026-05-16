@@ -94,33 +94,43 @@ router.put('/:id', (req, res) => {
     paddock_id:    'paddock_id' in req.body ? req.body.paddock_id : animal.paddock_id,
   };
 
-  if (updates.paddock_id !== animal.paddock_id) {
-    if (updates.paddock_id) {
-      const paddock = db.prepare('SELECT * FROM paddocks WHERE id = ?').get(updates.paddock_id);
-      if (!paddock) return res.status(400).json({ error: 'Paddock not found' });
-      if (paddock.animal_count >= paddock.capacity) {
-        return res.status(422).json({ error: 'Paddock is at full capacity' });
+  // Wrap all paddock-count and animal updates in a single transaction.
+  // Re-reading the paddock count inside BEGIN...COMMIT closes the race window
+  // where two concurrent requests could both pass the capacity check before
+  // either increments the count.
+  db.exec('BEGIN');
+  try {
+    if (updates.paddock_id !== animal.paddock_id) {
+      if (updates.paddock_id) {
+        const paddock = db.prepare('SELECT * FROM paddocks WHERE id = ?').get(updates.paddock_id);
+        if (!paddock) {
+          db.exec('ROLLBACK');
+          return res.status(400).json({ error: 'Paddock not found' });
+        }
+        if (paddock.animal_count >= paddock.capacity) {
+          db.exec('ROLLBACK');
+          return res.status(422).json({ error: 'Paddock is at full capacity' });
+        }
+      }
+      if (animal.paddock_id) {
+        db.prepare(
+          'UPDATE paddocks SET animal_count = animal_count - 1 WHERE id = ?'
+        ).run(animal.paddock_id);
+      }
+      if (updates.paddock_id) {
+        db.prepare(
+          'UPDATE paddocks SET animal_count = animal_count + 1 WHERE id = ?'
+        ).run(updates.paddock_id);
       }
     }
-    if (animal.paddock_id) {
-      db.prepare(
-        'UPDATE paddocks SET animal_count = animal_count - 1 WHERE id = ?'
-      ).run(animal.paddock_id);
-    }
-    if (updates.paddock_id) {
-      db.prepare(
-        'UPDATE paddocks SET animal_count = animal_count + 1 WHERE id = ?'
-      ).run(updates.paddock_id);
-    }
-  }
-
-  try {
     db.prepare(`
       UPDATE animals
       SET name = ?, tag_number = ?, breed = ?, date_of_birth = ?, paddock_id = ?
       WHERE id = ?
     `).run(updates.name, updates.tag_number, updates.breed, updates.date_of_birth, updates.paddock_id, req.params.id);
+    db.exec('COMMIT');
   } catch (err) {
+    db.exec('ROLLBACK');
     if (err.errcode === 2067) { // SQLITE_CONSTRAINT_UNIQUE
       return res.status(409).json({ error: 'tag_number already exists' });
     }

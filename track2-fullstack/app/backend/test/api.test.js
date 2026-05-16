@@ -290,3 +290,24 @@ test('PUT /api/animals/:id returns 409 for duplicate tag_number', async () => {
   });
   assert.equal(res.status, 409);
 });
+
+test('GET /api/animals/:id/weights returns empty array for animal with no weights', async () => {
+  const { body: animals } = await get('/animals?page=0&limit=2');
+  const id = animals[1].id; // Daisy — no weights seeded
+  const { status, body } = await get(`/animals/${id}/weights`);
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(body));
+  assert.equal(body.length, 0);
+});
+
+test('POST /api/paddocks returns 422 for negative capacity', async () => {
+  const { status, body } = await post('/paddocks', { name: 'Bad Pen', capacity: -1 });
+  assert.equal(status, 422);
+  assert.ok(body.error);
+});
+
+test('POST /api/paddocks returns 422 for zero capacity', async () => {
+  const { status, body } = await post('/paddocks', { name: 'Zero Pen', capacity: 0 });
+  assert.equal(status, 422);
+  assert.ok(body.error);
+});

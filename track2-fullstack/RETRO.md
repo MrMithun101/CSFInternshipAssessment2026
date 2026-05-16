@@ -12,8 +12,8 @@ UPDATE paddocks SET animal_count = (
 );
 ```
 
-**Capacity enforcement at the application layer.**
-The check `if paddock.animal_count >= paddock.capacity` is correct under serialised SQLite writes (WAL mode processes one writer at a time). Under concurrent HTTP requests, two requests could both read the same `animal_count`, both pass the check, and both increment — leaving the paddock one over capacity. SQLite's serialisation makes this a narrow race window, but it is not zero. The correct fix is a CHECK constraint on the table or a serialised transaction with a re-read inside. Left as a known limitation given the single-process deployment target.
+**Capacity enforcement with atomic transactions.**
+The reassignment flow (capacity check → decrement old paddock → increment new paddock → update animal) is wrapped in a `BEGIN`/`COMMIT` SQL transaction. Re-reading the paddock count inside the transaction closes the race window where two concurrent requests could both pass the capacity check before either increments the count — if any step fails, the whole operation rolls back. A `CHECK (animal_count <= capacity)` constraint at the schema level would add a further layer of defence and is the recommended long-term addition.
 
 **No pagination on weight history.**
 Weight endpoints return all records for an animal. For a long-lived flock this could grow large, but farming data accumulates slowly and the table is append-only. Adding `LIMIT`/`OFFSET` to the weight endpoints is straightforward if needed.
@@ -27,4 +27,6 @@ Weight endpoints return all records for an animal. For a long-lived flock this c
 
 **Plain HTML/JS frontend — no framework added.** The task explicitly forbids React, TypeScript, and a build step, and at this scale no framework is needed. The DOM-rendering rewrite removed the XSS risk without adding any dependency. Introducing a bundler would make reviewer setup harder with no benefit to correctness.
 
-**`server.js` and `routes/paddocks.js` — untouched.** Neither file contained bugs relevant to the assessment, and the brief asked to avoid modifying them unless necessary.
+**`server.js` — untouched beyond the global error handler.** No routing changes were needed.
+
+**`routes/paddocks.js`** — updated to reject negative or zero capacity on `POST /api/paddocks`, which was an unguarded input allowing nonsensical paddock configurations.
