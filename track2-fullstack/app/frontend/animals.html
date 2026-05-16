@@ -26,11 +26,12 @@
           <th>Breed</th>
           <th>Paddock</th>
           <th>Latest Health Event</th>
+          <th>Latest Weight</th>
           <th></th>
         </tr>
       </thead>
       <tbody id="animals-body">
-        <tr><td colspan="6" class="loading">Loading…</td></tr>
+        <tr><td colspan="7" class="loading">Loading…</td></tr>
       </tbody>
     </table>
     <div class="pagination">
@@ -62,7 +63,7 @@
       if (!animals.length) {
         const row = document.createElement('tr');
         const cell = document.createElement('td');
-        cell.colSpan = 6;
+        cell.colSpan = 7;
         cell.className = 'empty';
         cell.textContent = 'No animals found.';
         row.appendChild(cell);
@@ -75,6 +76,27 @@
         const row = document.createElement('tr');
         const ev = a.latest_health_event;
         const eventText = ev ? `${ev.event_type} (${ev.date})` : '—';
+
+        // Latest weight cell with optional trend indicator (▲ gaining / ▼ losing).
+        // Trend is calculated server-side from the two most recent weight records.
+        // A positive trend means the animal is gaining weight; negative means losing.
+        // Losing weight is an early warning sign of illness in livestock.
+        const weightCell = document.createElement('td');
+        const lw = a.latest_weight;
+        if (lw) {
+          weightCell.appendChild(document.createTextNode(`${lw.weight_kg} kg`));
+          if (lw.trend != null) {
+            const trendSpan = document.createElement('span');
+            const arrow = lw.trend > 0 ? '▲' : lw.trend < 0 ? '▼' : '—';
+            const absVal = Math.abs(lw.trend).toFixed(1);
+            trendSpan.textContent = ` ${arrow} ${absVal}`;
+            trendSpan.className = lw.trend > 0 ? 'trend-up' : 'trend-down';
+            weightCell.appendChild(trendSpan);
+          }
+        } else {
+          weightCell.textContent = '—';
+        }
+
         const linkCell = document.createElement('td');
         const link = document.createElement('a');
         link.href = `animal-detail.html?id=${a.id}`;
@@ -86,6 +108,7 @@
         row.appendChild(td(a.breed, '—'));
         row.appendChild(td(a.paddock_name, 'Unassigned'));
         row.appendChild(td(eventText));
+        row.appendChild(weightCell);
         row.appendChild(linkCell);
         tbody.appendChild(row);
       });

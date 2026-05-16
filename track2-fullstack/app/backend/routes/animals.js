@@ -2,10 +2,24 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 
+// Re-usable helper: fetch a paddock with its live animal count.
+// Using COUNT(*) means the value is always accurate — no stored counter to drift.
+function getPaddockWithCount(id) {
+  return db.prepare(`
+    SELECT p.id, p.name, p.capacity, COUNT(a.id) AS animal_count
+    FROM paddocks p
+    LEFT JOIN animals a ON a.paddock_id = p.id
+    WHERE p.id = ?
+    GROUP BY p.id
+  `).get(id);
+}
+
 router.get('/', (req, res) => {
   const page = parseInt(req.query.page) || 0;
   const limit = parseInt(req.query.limit) || 10;
 
+  // Single query: animals + paddock name + latest health event + latest two
+  // weights (for trend calculation). All data in one round-trip; no N+1 queries.
   const rows = db.prepare(`
     SELECT
       a.*,
@@ -14,7 +28,10 @@ router.get('/', (req, res) => {
       he.event_type AS he_event_type,
       he.notes      AS he_notes,
       he.date       AS he_date,
-      he.vet_name   AS he_vet_name
+      he.vet_name   AS he_vet_name,
+      lw.weight_kg  AS lw_weight_kg,
+      lw.date       AS lw_date,
+      pw.weight_kg  AS pw_weight_kg
     FROM animals a
     LEFT JOIN paddocks p ON p.id = a.paddock_id
     LEFT JOIN health_events he ON he.id = (
@@ -23,15 +40,43 @@ router.get('/', (req, res) => {
       ORDER BY date DESC
       LIMIT 1
     )
+    LEFT JOIN weights lw ON lw.id = (
+      SELECT id FROM weights
+      WHERE animal_id = a.id
+      ORDER BY date DESC, id DESC
+      LIMIT 1
+    )
+    LEFT JOIN weights pw ON pw.id = (
+      SELECT id FROM weights
+      WHERE animal_id = a.id
+      ORDER BY date DESC, id DESC
+      LIMIT 1 OFFSET 1
+    )
     LIMIT ? OFFSET ?
   `).all(limit, page * limit);
 
   const result = rows.map(row => {
-    const { he_id, he_event_type, he_notes, he_date, he_vet_name, ...animal } = row;
+    const {
+      he_id, he_event_type, he_notes, he_date, he_vet_name,
+      lw_weight_kg, lw_date, pw_weight_kg,
+      ...animal
+    } = row;
+
     const latest_health_event = he_id
       ? { id: he_id, animal_id: animal.id, event_type: he_event_type, notes: he_notes, date: he_date, vet_name: he_vet_name }
       : null;
-    return { ...animal, latest_health_event };
+
+    // Weight trend: kg gained (+) or lost (-) since the previous measurement.
+    // Rounded to one decimal place. null when fewer than two records exist.
+    const weight_trend = (lw_weight_kg != null && pw_weight_kg != null)
+      ? Math.round((lw_weight_kg - pw_weight_kg) * 10) / 10
+      : null;
+
+    const latest_weight = lw_weight_kg != null
+      ? { weight_kg: lw_weight_kg, date: lw_date, trend: weight_trend }
+      : null;
+
+    return { ...animal, latest_health_event, latest_weight };
   });
 
   res.json(result);
@@ -44,31 +89,38 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'name and tag_number are required' });
   }
 
-  if (paddock_id) {
-    const paddock = db.prepare('SELECT * FROM paddocks WHERE id = ?').get(paddock_id);
-    if (!paddock) return res.status(400).json({ error: 'Paddock not found' });
-    if (paddock.animal_count >= paddock.capacity) {
-      return res.status(422).json({ error: 'Paddock is at full capacity' });
-    }
-    db.prepare(
-      'UPDATE paddocks SET animal_count = animal_count + 1 WHERE id = ?'
-    ).run(paddock_id);
-  }
-
-  let result;
+  // Wrap the capacity check + insert in a transaction so that:
+  //   (a) a failed insert never leaves counts inconsistent, and
+  //   (b) two concurrent creates cannot both pass the capacity check
+  //       before either is committed (SQLite serialises writes).
+  db.exec('BEGIN');
   try {
-    result = db.prepare(
+    if (paddock_id) {
+      const paddock = getPaddockWithCount(paddock_id);
+      if (!paddock) {
+        db.exec('ROLLBACK');
+        return res.status(400).json({ error: 'Paddock not found' });
+      }
+      if (paddock.animal_count >= paddock.capacity) {
+        db.exec('ROLLBACK');
+        return res.status(422).json({ error: 'Paddock is at full capacity' });
+      }
+    }
+
+    const result = db.prepare(
       'INSERT INTO animals (name, tag_number, breed, date_of_birth, paddock_id) VALUES (?, ?, ?, ?, ?)'
     ).run(name, tag_number, breed ?? null, date_of_birth ?? null, paddock_id ?? null);
+
+    db.exec('COMMIT');
+    const animal = db.prepare('SELECT * FROM animals WHERE id = ?').get(result.lastInsertRowid);
+    return res.status(201).json(animal);
   } catch (err) {
-    if (err.errcode === 2067) { // SQLITE_CONSTRAINT_UNIQUE
+    db.exec('ROLLBACK');
+    if (err.errcode === 2067) {
       return res.status(409).json({ error: 'tag_number already exists' });
     }
     throw err;
   }
-
-  const animal = db.prepare('SELECT * FROM animals WHERE id = ?').get(result.lastInsertRowid);
-  res.status(201).json(animal);
 });
 
 router.get('/:id', (req, res) => {
@@ -94,44 +146,33 @@ router.put('/:id', (req, res) => {
     paddock_id:    'paddock_id' in req.body ? req.body.paddock_id : animal.paddock_id,
   };
 
-  // Wrap all paddock-count and animal updates in a single transaction.
-  // Re-reading the paddock count inside BEGIN...COMMIT closes the race window
-  // where two concurrent requests could both pass the capacity check before
-  // either increments the count.
+  // Wrap the capacity check + animal update in a transaction.
+  // Because animal_count is now derived via COUNT(*), we never touch paddock
+  // rows directly — the count updates itself the moment the animal row changes.
   db.exec('BEGIN');
   try {
-    if (updates.paddock_id !== animal.paddock_id) {
-      if (updates.paddock_id) {
-        const paddock = db.prepare('SELECT * FROM paddocks WHERE id = ?').get(updates.paddock_id);
-        if (!paddock) {
-          db.exec('ROLLBACK');
-          return res.status(400).json({ error: 'Paddock not found' });
-        }
-        if (paddock.animal_count >= paddock.capacity) {
-          db.exec('ROLLBACK');
-          return res.status(422).json({ error: 'Paddock is at full capacity' });
-        }
+    if (updates.paddock_id !== animal.paddock_id && updates.paddock_id) {
+      const paddock = getPaddockWithCount(updates.paddock_id);
+      if (!paddock) {
+        db.exec('ROLLBACK');
+        return res.status(400).json({ error: 'Paddock not found' });
       }
-      if (animal.paddock_id) {
-        db.prepare(
-          'UPDATE paddocks SET animal_count = animal_count - 1 WHERE id = ?'
-        ).run(animal.paddock_id);
-      }
-      if (updates.paddock_id) {
-        db.prepare(
-          'UPDATE paddocks SET animal_count = animal_count + 1 WHERE id = ?'
-        ).run(updates.paddock_id);
+      if (paddock.animal_count >= paddock.capacity) {
+        db.exec('ROLLBACK');
+        return res.status(422).json({ error: 'Paddock is at full capacity' });
       }
     }
+
     db.prepare(`
       UPDATE animals
       SET name = ?, tag_number = ?, breed = ?, date_of_birth = ?, paddock_id = ?
       WHERE id = ?
     `).run(updates.name, updates.tag_number, updates.breed, updates.date_of_birth, updates.paddock_id, req.params.id);
+
     db.exec('COMMIT');
   } catch (err) {
     db.exec('ROLLBACK');
-    if (err.errcode === 2067) { // SQLITE_CONSTRAINT_UNIQUE
+    if (err.errcode === 2067) {
       return res.status(409).json({ error: 'tag_number already exists' });
     }
     throw err;
@@ -149,19 +190,13 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   const animal = db.prepare('SELECT * FROM animals WHERE id = ?').get(req.params.id);
   if (!animal) return res.status(404).json({ error: 'Animal not found' });
-
-  if (animal.paddock_id) {
-    db.prepare(
-      'UPDATE paddocks SET animal_count = animal_count - 1 WHERE id = ?'
-    ).run(animal.paddock_id);
-  }
-
+  // No paddock counter to update — the derived COUNT(*) drops automatically.
   db.prepare('DELETE FROM animals WHERE id = ?').run(req.params.id);
   res.json({ message: 'deleted' });
 });
 
 router.get('/:id/health-events', (req, res) => {
-  const animal = db.prepare('SELECT * FROM animals WHERE id = ?').get(req.params.id);
+  const animal = db.prepare('SELECT id FROM animals WHERE id = ?').get(req.params.id);
   if (!animal) return res.status(404).json({ error: 'Animal not found' });
 
   const events = db.prepare(
@@ -171,7 +206,7 @@ router.get('/:id/health-events', (req, res) => {
 });
 
 router.post('/:id/health-events', (req, res) => {
-  const animal = db.prepare('SELECT * FROM animals WHERE id = ?').get(req.params.id);
+  const animal = db.prepare('SELECT id FROM animals WHERE id = ?').get(req.params.id);
   if (!animal) return res.status(404).json({ error: 'Animal not found' });
 
   const { event_type, notes, date, vet_name } = req.body;
@@ -192,7 +227,7 @@ router.get('/:id/weights', (req, res) => {
   if (!animal) return res.status(404).json({ error: 'Animal not found' });
 
   const weights = db.prepare(
-    'SELECT * FROM weights WHERE animal_id = ? ORDER BY date DESC'
+    'SELECT * FROM weights WHERE animal_id = ? ORDER BY date DESC, id DESC'
   ).all(req.params.id);
   res.json(weights);
 });

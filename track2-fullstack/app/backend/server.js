@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const { initDb } = require('./db');
+const { initDb, migrateDb } = require('./db');
 const animalsRouter = require('./routes/animals');
 const paddocksRouter = require('./routes/paddocks');
 
@@ -14,6 +14,7 @@ app.use('/api/animals', animalsRouter);
 app.use('/api/paddocks', paddocksRouter);
 
 initDb();
+migrateDb();
 
 function start(port = PORT) {
   const server = app.listen(port, () => {

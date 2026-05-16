@@ -10,10 +10,9 @@ db.exec('PRAGMA foreign_keys = ON');
 function initDb() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS paddocks (
-      id           INTEGER PRIMARY KEY AUTOINCREMENT,
-      name         TEXT    NOT NULL UNIQUE,
-      capacity     INTEGER NOT NULL,
-      animal_count INTEGER NOT NULL DEFAULT 0
+      id       INTEGER PRIMARY KEY AUTOINCREMENT,
+      name     TEXT    NOT NULL UNIQUE,
+      capacity INTEGER NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS animals (
@@ -35,13 +34,24 @@ function initDb() {
     );
 
     CREATE TABLE IF NOT EXISTS weights (
-      id         INTEGER PRIMARY KEY AUTOINCREMENT,
-      animal_id  INTEGER NOT NULL REFERENCES animals(id) ON DELETE CASCADE,
-      weight_kg  REAL    NOT NULL,
-      date       TEXT    NOT NULL,
-      notes      TEXT
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      animal_id INTEGER NOT NULL REFERENCES animals(id) ON DELETE CASCADE,
+      weight_kg REAL    NOT NULL,
+      date      TEXT    NOT NULL,
+      notes     TEXT
     );
   `);
 }
 
-module.exports = { db, initDb };
+// Drop the legacy animal_count column if it still exists from an older schema.
+// Animal occupancy is now always derived via COUNT(*) so the stored counter
+// is no longer needed and was the root cause of count-drift bugs.
+function migrateDb() {
+  try {
+    db.exec('ALTER TABLE paddocks DROP COLUMN animal_count');
+  } catch {
+    // Column already gone or never existed — no-op.
+  }
+}
+
+module.exports = { db, initDb, migrateDb };
