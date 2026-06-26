@@ -107,7 +107,15 @@ router.get('/', (req, res) => {
     return { ...animal, latest_health_event, latest_weight, at_risk, risk_reasons };
   });
 
-  res.json(result);
+  // Tag search returns all matches without paging — no total metadata needed.
+  if (tag) {
+    return res.json(result);
+  }
+
+  const total      = db.prepare('SELECT COUNT(*) AS n FROM animals').get().n;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+
+  res.json({ animals: result, total, page, limit, totalPages });
 });
 
 // ─── Animal CRUD ──────────────────────────────────────────────────────────────
