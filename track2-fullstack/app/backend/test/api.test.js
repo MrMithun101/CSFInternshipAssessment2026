@@ -87,6 +87,14 @@ async function del(path) {
   return { status: res.status, body: await res.json() };
 }
 
+// Unwraps the pagination envelope for GET /api/animals?page=... requests.
+// Tag-search requests (GET /api/animals?tag=...) still return a bare array and
+// should continue to use get() directly.
+async function animalsPage(path) {
+  const { status, body } = await get(path);
+  return { status, body: body.animals, meta: body };
+}
+
 // ─── Paddocks ────────────────────────────────────────────────────────────────
 
 test('GET /api/paddocks returns an array', async () => {
@@ -135,10 +143,25 @@ test('POST /api/paddocks returns 422 for zero capacity', async () => {
   assert.ok(body.error);
 });
 
-// ─── Animals list ────────────────────────────────────────────────────────────
+// ─── Animals list — pagination envelope ──────────────────────────────────────
+
+test('GET /api/animals returns pagination envelope', async () => {
+  const { status, body } = await get('/animals?page=0&limit=5');
+  assert.equal(status, 200);
+  assert.ok(Array.isArray(body.animals));
+  assert.equal(typeof body.total, 'number');
+  assert.equal(typeof body.totalPages, 'number');
+  assert.equal(body.page, 0);
+  assert.equal(body.limit, 5);
+});
+
+test('GET /api/animals totalPages is at least 1', async () => {
+  const { body } = await get('/animals?page=0&limit=5');
+  assert.ok(body.totalPages >= 1);
+});
 
 test('GET /api/animals returns animals with latest_health_event field', async () => {
-  const { status, body } = await get('/animals?page=0&limit=5');
+  const { status, body } = await animalsPage('/animals?page=0&limit=5');
   assert.equal(status, 200);
   assert.ok(Array.isArray(body));
   assert.ok(body.length > 0);
@@ -146,13 +169,13 @@ test('GET /api/animals returns animals with latest_health_event field', async ()
 });
 
 test('GET /api/animals returns animals with latest_weight field', async () => {
-  const { status, body } = await get('/animals?page=0&limit=5');
+  const { status, body } = await animalsPage('/animals?page=0&limit=5');
   assert.equal(status, 200);
   assert.ok('latest_weight' in body[0]);
 });
 
 test('GET /api/animals latest_weight includes trend when two weights exist', async () => {
-  const { body } = await get('/animals?page=0&limit=10');
+  const { body } = await animalsPage('/animals?page=0&limit=10');
   const bella = body.find(a => a.tag_number === 'TAG-001');
   assert.ok(bella, 'Bella not found in animal list');
   assert.ok(bella.latest_weight !== null, 'Bella should have a latest_weight');
@@ -162,11 +185,11 @@ test('GET /api/animals latest_weight includes trend when two weights exist', asy
 
 test('GET /api/animals latest_weight trend is null when only one weight exists', async () => {
   // Add a single weight for Daisy and confirm trend is null.
-  const { body: animals } = await get('/animals?page=0&limit=10');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=10');
   const daisy = animals.find(a => a.tag_number === 'TAG-002');
   await post(`/animals/${daisy.id}/weights`, { weight_kg: 50.0, date: '2025-01-01' });
 
-  const { body: refreshed } = await get('/animals?page=0&limit=10');
+  const { body: refreshed } = await animalsPage('/animals?page=0&limit=10');
   const daisyRefreshed = refreshed.find(a => a.tag_number === 'TAG-002');
   assert.equal(daisyRefreshed.latest_weight.weight_kg, 50.0);
   assert.equal(daisyRefreshed.latest_weight.trend, null);
@@ -175,7 +198,7 @@ test('GET /api/animals latest_weight trend is null when only one weight exists',
 test('GET /api/animals latest_weight is null when no weights logged', async () => {
   // Fresh animal with no weights.
   const { body: animal } = await post('/animals', { name: 'NoWeight', tag_number: 'TAG-NW-001' });
-  const { body: list } = await get('/animals?page=0&limit=100');
+  const { body: list } = await animalsPage('/animals?page=0&limit=100');
   const found = list.find(a => a.id === animal.id);
   assert.ok(found);
   assert.equal(found.latest_weight, null);
@@ -184,7 +207,7 @@ test('GET /api/animals latest_weight is null when no weights logged', async () =
 // ─── Animal CRUD ─────────────────────────────────────────────────────────────
 
 test('GET /api/animals/:id returns a single animal', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const id = animals[0].id;
   const { status, body } = await get(`/animals/${id}`);
   assert.equal(status, 200);
@@ -208,7 +231,7 @@ test('POST /api/animals creates animal and returns 201', async () => {
 });
 
 test('POST /api/animals returns 409 for duplicate tag_number', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const { status, body } = await post('/animals', {
     name: 'Duplicate',
     tag_number: animals[0].tag_number,
@@ -223,7 +246,7 @@ test('PUT /api/animals/:id returns 404 for unknown animal', async () => {
 });
 
 test('PUT /api/animals/:id returns 409 for duplicate tag_number', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=2');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=2');
   const [a, b] = animals;
   const { status } = await put(`/animals/${a.id}`, { tag_number: b.tag_number });
   assert.equal(status, 409);
@@ -306,7 +329,7 @@ test('PUT /api/animals/:id reassigning paddock updates both animal_counts', asyn
 // ─── Health events ────────────────────────────────────────────────────────────
 
 test('POST /api/animals/:id/health-events creates an event', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const id = animals[0].id;
   const { status, body } = await post(`/animals/${id}/health-events`, {
     event_type: 'checkup',
@@ -319,13 +342,13 @@ test('POST /api/animals/:id/health-events creates an event', async () => {
 });
 
 test('POST /api/animals/:id/health-events returns 400 when event_type is missing', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const { status } = await post(`/animals/${animals[0].id}/health-events`, { date: '2025-01-01' });
   assert.equal(status, 400);
 });
 
 test('POST /api/animals/:id/health-events returns 400 when date is missing', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const { status } = await post(`/animals/${animals[0].id}/health-events`, { event_type: 'checkup' });
   assert.equal(status, 400);
 });
@@ -341,7 +364,7 @@ test('POST /api/animals/:id/health-events returns 404 for unknown animal', async
 // ─── Weights ──────────────────────────────────────────────────────────────────
 
 test('POST /api/animals/:id/weights creates a weight record (201)', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const id = animals[0].id;
   const { status, body } = await post(`/animals/${id}/weights`, {
     weight_kg: 45.5,
@@ -356,7 +379,7 @@ test('POST /api/animals/:id/weights creates a weight record (201)', async () => 
 });
 
 test('GET /api/animals/:id/weights returns weights ordered by date descending', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const id = animals[0].id;
   await post(`/animals/${id}/weights`, { weight_kg: 40.0, date: '2025-01-01' });
   await post(`/animals/${id}/weights`, { weight_kg: 42.0, date: '2025-03-01' });
@@ -371,7 +394,7 @@ test('GET /api/animals/:id/weights returns weights ordered by date descending', 
 });
 
 test('GET /api/animals/:id/weights returns empty array for animal with no weights', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=2');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=2');
   // Daisy (TAG-002) has only one weight from the latest_weight trend test — still fine to check for array
   const { status, body } = await get(`/animals/${animals[1].id}/weights`);
   assert.equal(status, 200);
@@ -379,43 +402,43 @@ test('GET /api/animals/:id/weights returns empty array for animal with no weight
 });
 
 test('POST /api/animals/:id/weights returns 422 when weight_kg is missing', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const { status } = await post(`/animals/${animals[0].id}/weights`, { date: '2025-03-01' });
   assert.equal(status, 422);
 });
 
 test('POST /api/animals/:id/weights returns 422 when weight_kg is zero', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const { status } = await post(`/animals/${animals[0].id}/weights`, { weight_kg: 0, date: '2025-03-01' });
   assert.equal(status, 422);
 });
 
 test('POST /api/animals/:id/weights returns 422 when weight_kg is negative', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const { status } = await post(`/animals/${animals[0].id}/weights`, { weight_kg: -5, date: '2025-03-01' });
   assert.equal(status, 422);
 });
 
 test('POST /api/animals/:id/weights returns 422 when weight_kg is NaN', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const { status } = await post(`/animals/${animals[0].id}/weights`, { weight_kg: NaN, date: '2025-03-01' });
   assert.equal(status, 422);
 });
 
 test('POST /api/animals/:id/weights returns 422 when weight_kg is a string', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const { status } = await post(`/animals/${animals[0].id}/weights`, { weight_kg: '45', date: '2025-03-01' });
   assert.equal(status, 422);
 });
 
 test('POST /api/animals/:id/weights returns 422 when date is missing', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const { status } = await post(`/animals/${animals[0].id}/weights`, { weight_kg: 50 });
   assert.equal(status, 422);
 });
 
 test('POST /api/animals/:id/weights accepts record with no notes', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const { status, body } = await post(`/animals/${animals[0].id}/weights`, {
     weight_kg: 38.0,
     date: '2025-04-01',
@@ -462,7 +485,7 @@ test('GET /api/animals?tag= result includes latest_weight and at_risk fields', a
 // ─── At-risk flag ─────────────────────────────────────────────────────────────
 
 test('GET /api/animals returns at_risk field', async () => {
-  const { body } = await get('/animals?page=0&limit=10');
+  const { body } = await animalsPage('/animals?page=0&limit=10');
   assert.ok(body.length > 0);
   assert.ok('at_risk' in body[0]);
   assert.ok('risk_reasons' in body[0]);
@@ -474,7 +497,7 @@ test('GET /api/animals at_risk is true when weight trend is negative', async () 
   await post(`/animals/${animal.id}/weights`, { weight_kg: 50.0, date: '2025-01-01' });
   await post(`/animals/${animal.id}/weights`, { weight_kg: 47.0, date: '2025-02-01' });
 
-  const { body: list } = await get('/animals?page=0&limit=100');
+  const { body: list } = await animalsPage('/animals?page=0&limit=100');
   const found = list.find(a => a.id === animal.id);
   assert.ok(found);
   assert.equal(found.at_risk, true);
@@ -486,7 +509,7 @@ test('GET /api/animals at_risk is false when weight trend is positive', async ()
   await post(`/animals/${animal.id}/weights`, { weight_kg: 45.0, date: '2025-01-01' });
   await post(`/animals/${animal.id}/weights`, { weight_kg: 48.0, date: '2025-02-01' });
 
-  const { body: list } = await get('/animals?page=0&limit=100');
+  const { body: list } = await animalsPage('/animals?page=0&limit=100');
   const found = list.find(a => a.id === animal.id);
   assert.ok(found);
   assert.equal(found.at_risk, false);
@@ -525,7 +548,7 @@ test('PUT /api/paddocks/:id returns 422 for invalid capacity', async () => {
 // ─── Date validation ──────────────────────────────────────────────────────────
 
 test('POST /api/animals/:id/weights returns 422 for invalid date format', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const { status } = await post(`/animals/${animals[0].id}/weights`, {
     weight_kg: 45,
     date: 'not-a-date',
@@ -534,7 +557,7 @@ test('POST /api/animals/:id/weights returns 422 for invalid date format', async 
 });
 
 test('POST /api/animals/:id/health-events returns 400 for invalid date format', async () => {
-  const { body: animals } = await get('/animals?page=0&limit=1');
+  const { body: animals } = await animalsPage('/animals?page=0&limit=1');
   const { status } = await post(`/animals/${animals[0].id}/health-events`, {
     event_type: 'checkup',
     date: '16/05/2026',

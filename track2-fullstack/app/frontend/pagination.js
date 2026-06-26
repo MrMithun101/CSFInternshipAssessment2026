@@ -17,22 +17,26 @@
 function getPaginationRange(currentPage, totalPages, delta = 2) {
   if (totalPages <= 1) return [1];
 
-  const range = [];
-  // Build the window around the current page [left..right], clamped to valid bounds.
+  // Build the visible set: always include first, last, and a window around current.
+  const visible = new Set([1, totalPages]);
   const left  = Math.max(2, currentPage - delta);
   const right = Math.min(totalPages - 1, currentPage + delta);
+  for (let i = left; i <= right; i++) visible.add(i);
 
-  range.push(1);
-
-  if (left > 2) range.push('...');
-
-  for (let i = left; i <= right; i++) range.push(i);
-
-  if (right < totalPages - 1) range.push('...');
-
-  range.push(totalPages);
-
-  return range;
+  // Convert sorted set to array, inserting '...' only when a gap hides more
+  // than one page. A gap of exactly 1 hidden page is filled directly (showing
+  // the actual page number is cleaner than "..." hiding a single digit).
+  const sorted = [...visible].sort((a, b) => a - b);
+  const result = [];
+  for (let i = 0; i < sorted.length; i++) {
+    result.push(sorted[i]);
+    if (i < sorted.length - 1) {
+      const gap = sorted[i + 1] - sorted[i];
+      if (gap === 2) result.push(sorted[i] + 1);   // show the single hidden page
+      else if (gap > 2) result.push('...');
+    }
+  }
+  return result;
 }
 
 // Support both browser (global) and Node.js (module.exports) environments.
