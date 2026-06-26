@@ -4,7 +4,7 @@ initDb();
 
 db.exec('DELETE FROM weights; DELETE FROM health_events; DELETE FROM animals; DELETE FROM paddocks;');
 
-const insertPaddock = db.prepare('INSERT INTO paddocks (name, capacity, animal_count) VALUES (?, ?, 0)');
+const insertPaddock = db.prepare('INSERT INTO paddocks (name, capacity) VALUES (?, ?)');
 const northId = insertPaddock.run('North Paddock', 50).lastInsertRowid;
 const southId = insertPaddock.run('South Paddock', 30).lastInsertRowid;
 const eastId  = insertPaddock.run('East Paddock',  40).lastInsertRowid;
@@ -29,13 +29,10 @@ const animalsData = [
   ['Gwen',  'TAG-012', 'Merino',  '2022-02-07', eastId],
 ];
 
-const updateCount = db.prepare('UPDATE paddocks SET animal_count = animal_count + 1 WHERE id = ?');
-
-const animalIds = animalsData.map(([name, tag, breed, dob, paddockId]) => {
-  const id = insertAnimal.run(name, tag, breed, dob, paddockId).lastInsertRowid;
-  updateCount.run(paddockId);
-  return id;
-});
+// No animal_count column to maintain — occupancy is derived via COUNT(*).
+const animalIds = animalsData.map(([name, tag, breed, dob, paddockId]) =>
+  insertAnimal.run(name, tag, breed, dob, paddockId).lastInsertRowid
+);
 
 const insertEvent = db.prepare(
   'INSERT INTO health_events (animal_id, event_type, notes, date, vet_name) VALUES (?, ?, ?, ?, ?)'

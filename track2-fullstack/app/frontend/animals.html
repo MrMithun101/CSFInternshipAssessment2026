@@ -18,6 +18,10 @@
     <div class="page-header">
       <h2>Animals</h2>
     </div>
+    <div class="search-bar">
+      <input type="text" id="tag-search" placeholder="Search by tag number…" oninput="onTagInput(this.value)">
+      <button onclick="clearSearch()">Clear</button>
+    </div>
     <table>
       <thead>
         <tr>
@@ -26,22 +30,22 @@
           <th>Breed</th>
           <th>Paddock</th>
           <th>Latest Health Event</th>
+          <th>Latest Weight</th>
           <th></th>
         </tr>
       </thead>
       <tbody id="animals-body">
-        <tr><td colspan="6" class="loading">Loading…</td></tr>
+        <tr><td colspan="7" class="loading">Loading…</td></tr>
       </tbody>
     </table>
-    <div class="pagination">
-      <button id="prev-btn" onclick="changePage(-1)" disabled>Previous</button>
-      <span id="page-info">Page 1</span>
-      <button id="next-btn" onclick="changePage(1)">Next</button>
-    </div>
+    <div class="pagination"></div>
   </main>
   <script src="app.js"></script>
+  <script src="pagination.js"></script>
   <script>
-    let currentPage = 0;
+    let currentPage = 0;   // 0-indexed
+    let totalPages  = 1;
+    let currentTag  = '';
     const LIMIT = 5;
 
     function text(val, fallback) {
@@ -54,27 +58,86 @@
       return cell;
     }
 
+    let searchTimeout;
+    function onTagInput(val) {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        currentTag  = val.trim();
+        currentPage = 0;
+        loadAnimals();
+      }, 300);
+    }
+
+    function clearSearch() {
+      document.getElementById('tag-search').value = '';
+      currentTag  = '';
+      currentPage = 0;
+      loadAnimals();
+    }
+
     async function loadAnimals() {
-      const animals = await api.get(`/animals?page=${currentPage}&limit=${LIMIT}`);
+      const url = currentTag
+        ? `/animals?tag=${encodeURIComponent(currentTag)}`
+        : `/animals?page=${currentPage}&limit=${LIMIT}`;
+
+      const data    = await api.get(url);
+      // Tag search returns a bare array; paginated requests return an envelope.
+      const animals = Array.isArray(data) ? data : data.animals;
+      if (!Array.isArray(data)) {
+        totalPages = data.totalPages;
+      }
+
       const tbody = document.getElementById('animals-body');
       tbody.replaceChildren();
 
       if (!animals.length) {
         const row = document.createElement('tr');
         const cell = document.createElement('td');
-        cell.colSpan = 6;
+        cell.colSpan = 7;
         cell.className = 'empty';
         cell.textContent = 'No animals found.';
         row.appendChild(cell);
         tbody.appendChild(row);
-        document.getElementById('next-btn').disabled = true;
-        return;
       }
 
       animals.forEach(a => {
         const row = document.createElement('tr');
+
+        // At-risk rows get a subtle visual treatment so farmers can spot
+        // animals needing attention without opening each detail page.
+        if (a.at_risk) row.className = 'at-risk-row';
+
         const ev = a.latest_health_event;
         const eventText = ev ? `${ev.event_type} (${ev.date})` : '—';
+
+        // Name cell: append a warning badge if the animal is flagged at-risk.
+        const nameCell = document.createElement('td');
+        nameCell.appendChild(document.createTextNode(a.name ?? ''));
+        if (a.at_risk) {
+          const badge = document.createElement('span');
+          badge.className = 'at-risk-badge';
+          badge.textContent = ' ⚠';
+          badge.title = `At risk: ${a.risk_reasons.join(', ')}`;
+          nameCell.appendChild(badge);
+        }
+
+        // Latest weight cell with optional trend indicator (▲ gaining / ▼ losing).
+        const weightCell = document.createElement('td');
+        const lw = a.latest_weight;
+        if (lw) {
+          weightCell.appendChild(document.createTextNode(`${lw.weight_kg} kg`));
+          if (lw.trend != null) {
+            const trendSpan = document.createElement('span');
+            const arrow = lw.trend > 0 ? '▲' : lw.trend < 0 ? '▼' : '—';
+            const absVal = Math.abs(lw.trend).toFixed(1);
+            trendSpan.textContent = ` ${arrow} ${absVal}`;
+            trendSpan.className = lw.trend > 0 ? 'trend-up' : 'trend-down';
+            weightCell.appendChild(trendSpan);
+          }
+        } else {
+          weightCell.textContent = '—';
+        }
+
         const linkCell = document.createElement('td');
         const link = document.createElement('a');
         link.href = `animal-detail.html?id=${a.id}`;
@@ -82,21 +145,67 @@
         linkCell.appendChild(link);
 
         row.appendChild(td(a.tag_number));
-        row.appendChild(td(a.name));
+        row.appendChild(nameCell);
         row.appendChild(td(a.breed, '—'));
         row.appendChild(td(a.paddock_name, 'Unassigned'));
         row.appendChild(td(eventText));
+        row.appendChild(weightCell);
         row.appendChild(linkCell);
         tbody.appendChild(row);
       });
 
-      document.getElementById('page-info').textContent = `Page ${currentPage + 1}`;
-      document.getElementById('prev-btn').disabled = currentPage === 0;
-      document.getElementById('next-btn').disabled = animals.length < LIMIT;
+      renderPagination();
     }
 
-    function changePage(dir) {
-      currentPage = Math.max(0, currentPage + dir);
+    function renderPagination() {
+      const pagination = document.querySelector('.pagination');
+
+      // Hide entirely during tag search.
+      if (currentTag) {
+        pagination.style.visibility = 'hidden';
+        return;
+      }
+      pagination.style.visibility = 'visible';
+
+      pagination.replaceChildren();
+
+      // Prev button
+      const prevBtn = document.createElement('button');
+      prevBtn.id = 'prev-btn';
+      prevBtn.textContent = '‹ Prev';
+      prevBtn.disabled = currentPage === 0;
+      prevBtn.onclick = () => goToPage(currentPage - 1);
+      pagination.appendChild(prevBtn);
+
+      // Numbered page buttons with ellipses
+      const range = getPaginationRange(currentPage + 1, totalPages);
+      range.forEach(item => {
+        if (item === '...') {
+          const ellipsis = document.createElement('span');
+          ellipsis.className = 'page-ellipsis';
+          ellipsis.textContent = '…';
+          pagination.appendChild(ellipsis);
+        } else {
+          const btn = document.createElement('button');
+          btn.textContent = item;
+          btn.className = item === currentPage + 1 ? 'page-btn page-btn-active' : 'page-btn';
+          btn.disabled = item === currentPage + 1;
+          btn.onclick = () => goToPage(item - 1);
+          pagination.appendChild(btn);
+        }
+      });
+
+      // Next button
+      const nextBtn = document.createElement('button');
+      nextBtn.id = 'next-btn';
+      nextBtn.textContent = 'Next ›';
+      nextBtn.disabled = currentPage >= totalPages - 1;
+      nextBtn.onclick = () => goToPage(currentPage + 1);
+      pagination.appendChild(nextBtn);
+    }
+
+    function goToPage(page) {
+      currentPage = Math.max(0, Math.min(page, totalPages - 1));
       loadAnimals();
     }
 
